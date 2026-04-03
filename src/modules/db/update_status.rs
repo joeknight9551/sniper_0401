@@ -197,11 +197,11 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
         return;
     }
 
-    let take_profit_price = token_data.token_buying_point_price * 1.3;
+    let take_profit_price = token_data.token_buying_point_price * 1.5;
 
     if token_data.token_price >= take_profit_price {
         info!(
-            "[TP HIT] 130% reached! BuyPrice: {:.6} → CurrentPrice: {:.6} (target: {:.6}) | Mint: {}",
+            "[TP HIT] 150% reached! BuyPrice: {:.6} → CurrentPrice: {:.6} (target: {:.6}) | Mint: {}",
             token_data.token_buying_point_price,
             token_data.token_price,
             take_profit_price,
@@ -225,7 +225,7 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
                 .get_sell_ix(data.token_balance, data.cashback_enabled);
 
             let sell_tag = format!(
-                "[SELL]\t*130% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                "[SELL]\t*150% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
                 data.pump_fun_swap_accounts.mint,
                 data.token_marketcap,
                 data.token_balance,
@@ -234,7 +234,7 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
             );
 
             info!(
-                "[SELL]\t*130% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                "[SELL]\t*150% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
                 data.pump_fun_swap_accounts.mint,
                 data.token_marketcap,
                 data.token_balance,
