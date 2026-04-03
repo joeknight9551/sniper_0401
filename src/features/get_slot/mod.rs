@@ -1,0 +1,41 @@
+use tokio::time::{Duration, sleep};
+use std::sync::Mutex;
+
+
+use solana_sdk::{
+    commitment_config::{CommitmentConfig, CommitmentLevel},
+    hash::Hash,
+};
+use once_cell::sync::Lazy;
+
+use crate::RPC_CLINET;
+
+static RECENT_HASH: Lazy<Mutex<Hash>> = Lazy::new(|| Mutex::new(Hash::default()));
+
+fn set_slot(value: Hash) {
+    let mut slot = RECENT_HASH.lock().unwrap();
+    *slot = value;
+}
+
+pub fn get_slot() -> Hash {
+    let slot: std::sync::MutexGuard<'_, Hash> = RECENT_HASH.lock().unwrap();
+    *slot
+}
+
+pub async fn recent_block_handler() {
+    loop {
+        match RPC_CLINET.get_latest_blockhash_with_commitment(CommitmentConfig {
+            commitment: CommitmentLevel::Processed,
+        }).await {
+            Ok((latest_blockhash, _)) => {
+                set_slot(latest_blockhash);
+                break;
+            }
+            Err(_) => {
+                sleep(Duration::from_millis(200)).await;
+            }
+        };
+    }
+
+    sleep(Duration::from_millis(500)).await;
+}

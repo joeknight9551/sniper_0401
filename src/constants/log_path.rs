@@ -1,0 +1,1 @@
+pub const LOG_DIR: &str = "src/assets/logs";

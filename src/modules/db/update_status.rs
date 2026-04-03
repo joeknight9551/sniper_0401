@@ -1,0 +1,251 @@
+use colored::Colorize;
+use std::sync::atomic::Ordering;
+
+use crate::*;
+use crate::{BuyEvent, LastEvent, TokenDatabaseSchema, WALLET_PUB_KEY, info};
+
+pub fn update_status_from_buy_event(
+    mut token_data: TokenDatabaseSchema,
+    buy_event: BuyEvent,
+    tx_id: String,
+    cu_info: ComputeBudgetInfo,
+) -> TokenDatabaseSchema {
+    let updated_token_price = (buy_event.virtual_sol_reserves as f64 / 10f64.powi(9))
+        / (buy_event.virtual_token_reserves as f64 / 10f64.powi(6));
+    token_data.token_price = updated_token_price;
+
+    token_data.token_marketcap = updated_token_price * token_data.token_total_supply as f64;
+
+    token_data.token_volume = if let Some(val) = token_data.token_volume {
+        Some(val + buy_event.sol_amount as f64 / 10f64.powi(9))
+    } else {
+        None
+    };
+
+    // Update creator vault PDA from the event's creator (creator may have changed since mint)
+    token_data.token_creator = buy_event.creator;
+    token_data
+        .pump_fun_swap_accounts
+        .update_creator_vault(&buy_event.creator);
+
+    token_data.last_event = LastEvent {
+        tx_hash: tx_id.clone(),
+        last_tracked_event: super::TokenEvent::BuyTokenEvent,
+        last_activity_timestamp: buy_event.timestamp,
+    };
+
+    if buy_event.user == token_data.token_creator {
+        info!(
+            "{}, [{}]\t*Mint: {}\t*MC: {:.2} SOL\t{}\t*Buy Amount: {:.2} SOL\t*CU Limit: {}\t*CU Price: {}",
+            "Dev Buy".blue(),
+            if token_data.token_is_purchased {
+                "Purchased Token"
+            } else {
+                "No Purchased"
+            },
+            token_data.token_mint,
+            token_data.token_marketcap,
+            match token_data.token_volume {
+                Some(val) => format!("*Volume: {:.4} SOL", val),
+                None => "".to_string(),
+            },
+            buy_event.sol_amount as f64 / 10f64.powi(9),
+            cu_info.unit_limit,
+            cu_info.unit_price,
+        );
+    } else if buy_event.user != *WALLET_PUB_KEY {
+        info!(
+            "{}, [{}]\t*Mint: {}\t*MC: {:.2} SOL\t{}\t*Buy Amount: {:.2} SOL\t*CU Limit: {}\t*CU Price: {}",
+            "BUY".blue(),
+            if token_data.token_is_purchased {
+                "Purchased Token"
+            } else {
+                "No Purchased"
+            },
+            token_data.token_mint,
+            token_data.token_marketcap,
+            match token_data.token_volume {
+                Some(val) => format!("*Volume: {:.4} SOL", val),
+                None => "".to_string(),
+            },
+            buy_event.sol_amount as f64 / 10f64.powi(9),
+            cu_info.unit_limit,
+            cu_info.unit_price,
+        );
+    }
+
+    if buy_event.user == *WALLET_PUB_KEY {
+        info!(
+            "[My tx]\t[{}]\t*Hash: {}\t*mint: {}",
+            "Buy".green(),
+            tx_id,
+            buy_event.mint.to_string()
+        );
+        token_data.token_is_purchased = true;
+        token_data.token_buying_point_price = (buy_event.sol_amount as f64 / 10f64.powi(9))
+            / (buy_event.token_amount as f64 / 10f64.powi(6));
+        token_data.token_balance += buy_event.token_amount;
+    }
+    let _ = TOKEN_DB.upsert(buy_event.mint.clone(), token_data.clone());
+    // Check take-profit on every price update for tokens we hold
+    check_take_profit(&token_data);
+    token_data.clone()
+}
+
+pub fn update_status_from_sell_event(
+    mut token_data: TokenDatabaseSchema,
+    sell_event: SellEvent,
+    tx_id: String,
+    cu_info: ComputeBudgetInfo,
+) -> Option<TokenDatabaseSchema> {
+    let updated_token_price = (sell_event.virtual_sol_reserves as f64 / 10f64.powi(9))
+        / (sell_event.virtual_token_reserves as f64 / 10f64.powi(6));
+
+    token_data.token_price = updated_token_price;
+    token_data.token_marketcap = updated_token_price * token_data.token_total_supply as f64;
+
+    token_data.token_volume = if let Some(val) = token_data.token_volume {
+        Some(val + sell_event.sol_amount as f64 / 10f64.powi(9))
+    } else {
+        None
+    };
+
+    // Update creator vault PDA from the event's creator (creator may have changed since mint)
+    token_data.token_creator = sell_event.creator;
+    token_data
+        .pump_fun_swap_accounts
+        .update_creator_vault(&sell_event.creator);
+
+    token_data.last_event = LastEvent {
+        tx_hash: tx_id.clone(),
+        last_tracked_event: TokenEvent::SellTokenEvent,
+        last_activity_timestamp: sell_event.timestamp,
+    };
+
+    if sell_event.user == token_data.token_creator {
+        info!(
+            "{}, [{}]\t*Mint: {}\t*MC: {:.2} SOL\t{}\t*Sell Amount: {:.2} SOL\t*CU Limit: {}\t*CU Price: {}",
+            "Dev SELL".blue(),
+            if token_data.token_is_purchased {
+                "Purchased Token"
+            } else {
+                "No Purchased"
+            },
+            token_data.token_mint,
+            token_data.token_marketcap,
+            match token_data.token_volume {
+                Some(val) => format!("*Volume: {:.4} SOL", val),
+                None => "".to_string(),
+            },
+            sell_event.sol_amount as f64 / 10f64.powi(9),
+            cu_info.unit_limit,
+            cu_info.unit_price,
+        );
+    } else if sell_event.user != *WALLET_PUB_KEY {
+        info!(
+            "{}, [{}]\t*Mint: {}\t*MC: {:.2} SOL\t{}\t*Sell Amount: {:.2} SOL\t*CU Limit: {}\t*CU Price: {}",
+            "SELL".blue(),
+            if token_data.token_is_purchased {
+                "Purchased Token"
+            } else {
+                "No Purchased"
+            },
+            token_data.token_mint,
+            token_data.token_marketcap,
+            match token_data.token_volume {
+                Some(val) => format!("*Volume: {:.4} SOL", val),
+                None => "".to_string(),
+            },
+            sell_event.sol_amount as f64 / 10f64.powi(9),
+            cu_info.unit_limit,
+            cu_info.unit_price,
+        );
+    }
+
+    if sell_event.user == *WALLET_PUB_KEY {
+        info!(
+            "[My Tx]\t[{}]\t*Hash: {}\t*mint: {}",
+            "Sell".green(),
+            tx_id,
+            sell_event.mint.to_string()
+        );
+        token_data.token_balance -= sell_event.token_amount;
+
+        if token_data.token_balance > 0 {
+            let _ = TOKEN_DB.upsert(sell_event.mint.clone(), token_data.clone());
+            Some(token_data.clone())
+        } else {
+            let _ = TOKEN_DB.delete(sell_event.mint.clone());
+            None
+        }
+    } else {
+        let _ = TOKEN_DB.upsert(sell_event.mint.clone(), token_data.clone());
+        // Check take-profit on every price update for tokens we hold
+        check_take_profit(&token_data);
+        Some(token_data.clone())
+    }
+}
+
+/// Check if the current price has hit 130% of our buy price.
+/// Called on every buy/sell event price update — no polling needed.
+fn check_take_profit(token_data: &TokenDatabaseSchema) {
+    if !token_data.token_is_purchased
+        || token_data.token_balance == 0
+        || token_data.token_buying_point_price == 0.0
+        || token_data.token_sell_status != TokenSellStatus::None
+    {
+        return;
+    }
+
+    let take_profit_price = token_data.token_buying_point_price * 1.3;
+
+    if token_data.token_price >= take_profit_price {
+        info!(
+            "[TP HIT] 130% reached! BuyPrice: {:.6} → CurrentPrice: {:.6} (target: {:.6}) | Mint: {}",
+            token_data.token_buying_point_price,
+            token_data.token_price,
+            take_profit_price,
+            token_data.token_mint,
+        );
+
+        // Mark as sell submitted to prevent duplicate sells
+        let mut updated = token_data.clone();
+        updated.token_sell_status = TokenSellStatus::SellTradeSubmitted;
+        let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
+
+        // Build and send sell tx asynchronously
+        let sell_data = updated.clone();
+        tokio::spawn(async move {
+            let mut data = sell_data;
+            data.pump_fun_swap_accounts
+                .update_creator_vault(&data.token_creator);
+
+            let sell_ix = data
+                .pump_fun_swap_accounts
+                .get_sell_ix(data.token_balance, data.cashback_enabled);
+
+            let sell_tag = format!(
+                "[SELL]\t*130% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                data.pump_fun_swap_accounts.mint,
+                data.token_marketcap,
+                data.token_balance,
+                data.token_buying_point_price,
+                data.token_price,
+            );
+
+            info!(
+                "[SELL]\t*130% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                data.pump_fun_swap_accounts.mint,
+                data.token_marketcap,
+                data.token_balance,
+                data.token_buying_point_price,
+                data.token_price,
+            );
+
+            let _ = confirm(vec![sell_ix], sell_tag).await;
+
+            // Unlock position so bot can buy next token
+            IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
+        });
+    }
+}
