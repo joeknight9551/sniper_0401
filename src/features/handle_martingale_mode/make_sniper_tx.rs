@@ -73,7 +73,7 @@ pub async fn make_sniper_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabase
             let sell_token_data = token_data.clone();
             let buy_price = token_data.token_price;
             tokio::spawn(async move {
-                sleep(Duration::from_millis(5000)).await;
+                sleep(Duration::from_millis(10000)).await;
 
                 // Re-read latest token data from DB
                 if let Ok(Some(mut latest_data)) = TOKEN_DB.get(sell_token_data.token_mint) {
