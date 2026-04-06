@@ -53,9 +53,7 @@ pub async fn handle_sniper_event(
 
             // Record CU pattern for this buy transaction on the token
             if let Some(config) = record_and_match_cu_pattern(buy_event.mint, cu_info) {
-                if !updated_token_data.token_is_purchased
-                    && !IS_HOLDING_POSITION.load(std::sync::atomic::Ordering::SeqCst)
-                {
+                if !updated_token_data.token_is_purchased {
                     updated_token_data.token_take_profit_pct = config.take_profit_pct;
                     updated_token_data.token_holding_time_secs = config.holding_time_secs;
                     updated_token_data.token_buy_now = true;
@@ -77,9 +75,7 @@ pub async fn handle_sniper_event(
             ) {
                 // Record CU pattern for this sell transaction on the token
                 if let Some(config) = record_and_match_cu_pattern(sell_event.mint, cu_info) {
-                    if !updated_token_data.token_is_purchased
-                        && !IS_HOLDING_POSITION.load(std::sync::atomic::Ordering::SeqCst)
-                    {
+                    if !updated_token_data.token_is_purchased {
                         updated_token_data.token_take_profit_pct = config.take_profit_pct;
                         updated_token_data.token_holding_time_secs = config.holding_time_secs;
                         updated_token_data.token_buy_now = true;

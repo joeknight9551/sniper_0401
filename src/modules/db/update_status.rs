@@ -1,5 +1,4 @@
 use colored::Colorize;
-use std::sync::atomic::Ordering;
 
 use crate::*;
 use crate::{BuyEvent, LastEvent, TokenDatabaseSchema, WALLET_PUB_KEY, info};
@@ -248,9 +247,6 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
             );
 
             let _ = confirm(vec![sell_ix], sell_tag).await;
-
-            // Unlock position so bot can buy next token
-            IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
         });
     }
 }
