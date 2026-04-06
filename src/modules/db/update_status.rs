@@ -247,9 +247,6 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
             );
 
             let _ = confirm(vec![sell_ix], sell_tag).await;
-
-            // Take-profit sell is always profitable
-            record_trade_outcome(true);
         });
     }
 }

@@ -54,10 +54,25 @@ pub async fn handle_sniper_event(
             // Record CU pattern for this buy transaction on the token
             if let Some(config) = record_and_match_cu_pattern(buy_event.mint, cu_info) {
                 if !updated_token_data.token_is_purchased {
-                    updated_token_data.token_take_profit_pct = config.take_profit_pct;
-                    updated_token_data.token_holding_time_secs = config.holding_time_secs;
-                    updated_token_data.token_buy_now = true;
-                    let _ = TOKEN_DB.upsert(updated_token_data.token_mint, updated_token_data.clone());
+                    // Check per-pattern skip-after-loss
+                    let should_skip = PATTERN_SKIP_NEXT
+                        .get(&config.pattern_index)
+                        .map(|v| *v)
+                        .unwrap_or(false);
+                    if should_skip {
+                        // Clear the skip flag — next match will buy
+                        PATTERN_SKIP_NEXT.insert(config.pattern_index, false);
+                        info!(
+                            "[Skip] Pattern #{} skipped due to previous loss | Mint: {}",
+                            config.pattern_index, buy_event.mint
+                        );
+                    } else {
+                        updated_token_data.token_take_profit_pct = config.take_profit_pct;
+                        updated_token_data.token_holding_time_secs = config.holding_time_secs;
+                        updated_token_data.token_pattern_index = config.pattern_index;
+                        updated_token_data.token_buy_now = true;
+                        let _ = TOKEN_DB.upsert(updated_token_data.token_mint, updated_token_data.clone());
+                    }
                 }
             }
 
@@ -76,10 +91,24 @@ pub async fn handle_sniper_event(
                 // Record CU pattern for this sell transaction on the token
                 if let Some(config) = record_and_match_cu_pattern(sell_event.mint, cu_info) {
                     if !updated_token_data.token_is_purchased {
-                        updated_token_data.token_take_profit_pct = config.take_profit_pct;
-                        updated_token_data.token_holding_time_secs = config.holding_time_secs;
-                        updated_token_data.token_buy_now = true;
-                        let _ = TOKEN_DB.upsert(updated_token_data.token_mint, updated_token_data.clone());
+                        // Check per-pattern skip-after-loss
+                        let should_skip = PATTERN_SKIP_NEXT
+                            .get(&config.pattern_index)
+                            .map(|v| *v)
+                            .unwrap_or(false);
+                        if should_skip {
+                            PATTERN_SKIP_NEXT.insert(config.pattern_index, false);
+                            info!(
+                                "[Skip] Pattern #{} skipped due to previous loss | Mint: {}",
+                                config.pattern_index, sell_event.mint
+                            );
+                        } else {
+                            updated_token_data.token_take_profit_pct = config.take_profit_pct;
+                            updated_token_data.token_holding_time_secs = config.holding_time_secs;
+                            updated_token_data.token_pattern_index = config.pattern_index;
+                            updated_token_data.token_buy_now = true;
+                            let _ = TOKEN_DB.upsert(updated_token_data.token_mint, updated_token_data.clone());
+                        }
                     }
                 }
 

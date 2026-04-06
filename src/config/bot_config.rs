@@ -10,7 +10,7 @@ use solana_sdk::{
     signer::{Signer, keypair::Keypair},
 };
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 pub static WALLET_PUB_KEY: Lazy<Pubkey> = Lazy::new(|| {
     let wallet: Keypair = Keypair::from_base58_string(&CONFIG.wallet_config.private_key);
@@ -50,28 +50,6 @@ lazy_static! {
     pub static ref AUTO_TURN_OFF: AtomicBool = AtomicBool::new(false);
     /// Global lock: true = currently holding a token, skip new buys
     pub static ref IS_HOLDING_POSITION: AtomicBool = AtomicBool::new(false);
-}
-
-/// Tracks consecutive profitable trades.
-pub static CONSECUTIVE_WINS: AtomicU32 = AtomicU32::new(0);
-/// Number of buy signals to skip. Set to 2 after 3 consecutive wins.
-pub static BUYS_TO_SKIP: AtomicU32 = AtomicU32::new(0);
-
-/// Call after each sell to update the win-streak / skip counters.
-/// `profitable`: true if sell_price > buy_price.
-pub fn record_trade_outcome(profitable: bool) {
-    if profitable {
-        let wins = CONSECUTIVE_WINS.fetch_add(1, Ordering::SeqCst) + 1;
-        info!("[Streak] Consecutive wins: {}", wins);
-        if wins >= 3 {
-            BUYS_TO_SKIP.store(2, Ordering::SeqCst);
-            CONSECUTIVE_WINS.store(0, Ordering::SeqCst);
-            info!("[Streak] 3 consecutive wins — skipping next 2 buys");
-        }
-    } else {
-        CONSECUTIVE_WINS.store(0, Ordering::SeqCst);
-        info!("[Streak] Loss — consecutive wins reset to 0");
-    }
 }
 
 pub static RPC_ENDPOINTL: Lazy<String> =

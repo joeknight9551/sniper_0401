@@ -23,6 +23,7 @@ pub struct TokenDatabaseSchema {
     pub token_buy_now: bool,
     pub token_take_profit_pct: f64,
     pub token_holding_time_secs: u64,
+    pub token_pattern_index: usize,
 }
 
 impl TokenDatabaseSchema {
@@ -65,6 +66,7 @@ impl TokenDatabaseSchema {
             token_buy_now: false,
             token_take_profit_pct: 0.0,
             token_holding_time_secs: 0,
+            token_pattern_index: 0,
         };
         let _ = TOKEN_DB.upsert(mint_event.mint.clone(), token_data.clone());
 
