@@ -15,15 +15,9 @@ pub struct CuPatternEntry {
 /// Returned when a pattern matches, carrying the pattern's trade settings.
 #[derive(Debug, Clone, Copy)]
 pub struct MatchedPatternConfig {
-    pub pattern_index: usize,
     pub take_profit_pct: f64,
     pub holding_time_secs: u64,
 }
-
-/// Per-pattern skip-after-loss flag.
-/// Key: pattern index, Value: true = skip the next match for this pattern.
-pub static PATTERN_SKIP_NEXT: Lazy<Arc<DashMap<usize, bool>>> =
-    Lazy::new(|| Arc::new(DashMap::new()));
 
 /// All patterns loaded from pattern.txt.
 /// Each line: `[[cu_limit, cu_price], ..., take_profit_pct, holding_time_secs]`
@@ -110,7 +104,7 @@ pub fn record_and_match_cu_pattern(
     history.push((cu_info.unit_limit, cu_info.unit_price as u64));
 
     // Check against every loaded pattern
-    for (idx, pattern) in CU_PATTERNS.iter().enumerate() {
+    for pattern in CU_PATTERNS.iter() {
         let pattern_len = pattern.cu_pairs.len();
 
         // We need exactly `pattern_len` transactions recorded to compare
@@ -129,11 +123,10 @@ pub fn record_and_match_cu_pattern(
 
         if matched {
             info!(
-                "[Pattern Match] Token {} matched CU pattern #{} after {} txs: {:?} | TP: {}% | Hold: {}s",
-                mint, idx, pattern_len, pattern.cu_pairs, pattern.take_profit_pct, pattern.holding_time_secs
+                "[Pattern Match] Token {} matched CU pattern after {} txs: {:?} | TP: {}% | Hold: {}s",
+                mint, pattern_len, pattern.cu_pairs, pattern.take_profit_pct, pattern.holding_time_secs
             );
             return Some(MatchedPatternConfig {
-                pattern_index: idx,
                 take_profit_pct: pattern.take_profit_pct,
                 holding_time_secs: pattern.holding_time_secs,
             });

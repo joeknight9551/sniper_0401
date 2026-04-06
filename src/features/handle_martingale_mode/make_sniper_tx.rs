@@ -2,6 +2,7 @@ use crate::*;
 use colored::*;
 use dashmap::DashMap;
 use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 use tokio::time::{Duration, sleep};
 
@@ -10,6 +11,14 @@ pub async fn make_sniper_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabase
         let mut token_data = trade_token_data.value().clone();
 
         if token_data.token_buy_now {
+            // Skip if already holding a position — only one token at a time
+            if IS_HOLDING_POSITION.load(Ordering::SeqCst) {
+                continue;
+            }
+
+            // Lock: no more buys until this position is sold
+            IS_HOLDING_POSITION.store(true, Ordering::SeqCst);
+
             token_data.token_buy_now = false;
             token_data.token_is_purchased = true;
             let _ = TOKEN_DB.upsert(token_data.token_mint, token_data.clone());
@@ -101,20 +110,11 @@ pub async fn make_sniper_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabase
                         );
 
                         let _ = confirm(vec![sell_ix], sell_tag).await;
-
-                        // If sold at a loss (current price below actual buy execution price), skip the next match
-                        if latest_data.token_price < latest_data.token_buying_point_price {
-                            alert!(
-                                "[LOSS] Pattern #{} loss. BuyPrice: {:.6} > SellPrice: {:.6} | Mint: {} — skipping next match",
-                                latest_data.token_pattern_index,
-                                latest_data.token_buying_point_price,
-                                latest_data.token_price,
-                                latest_data.pump_fun_swap_accounts.mint,
-                            );
-                            PATTERN_SKIP_NEXT.insert(latest_data.token_pattern_index, true);
-                        }
                     }
                 }
+
+                // Unlock: allow the bot to buy a new token
+                IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
             });
         }
     }

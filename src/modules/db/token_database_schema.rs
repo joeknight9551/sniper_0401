@@ -7,6 +7,8 @@ use crate::{MintEvent, MintInstructionAccounts};
 #[derive(Clone, Debug)]
 pub struct TokenDatabaseSchema {
     pub token_mint: Pubkey,
+    pub token_name: String,
+    pub token_symbol: String,
     pub cashback_enabled: bool,
     pub token_creator: Pubkey,
     pub token_total_supply: u64,
@@ -23,7 +25,6 @@ pub struct TokenDatabaseSchema {
     pub token_buy_now: bool,
     pub token_take_profit_pct: f64,
     pub token_holding_time_secs: u64,
-    pub token_pattern_index: usize,
 }
 
 impl TokenDatabaseSchema {
@@ -43,6 +44,8 @@ impl TokenDatabaseSchema {
 
         let token_data = Self {
             token_mint: mint_event.mint,
+            token_name: mint_event.name.clone(),
+            token_symbol: mint_event.symbol.clone(),
             token_creator: mint_event.creator,
             token_total_supply: mint_event.token_total_supply / 10u64.pow(6),
             cashback_enabled: mint_event.cashback_enabled,
@@ -66,7 +69,6 @@ impl TokenDatabaseSchema {
             token_buy_now: false,
             token_take_profit_pct: 0.0,
             token_holding_time_secs: 0,
-            token_pattern_index: 0,
         };
         let _ = TOKEN_DB.upsert(mint_event.mint.clone(), token_data.clone());
 
