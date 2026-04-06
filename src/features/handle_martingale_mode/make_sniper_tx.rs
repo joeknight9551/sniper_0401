@@ -10,6 +10,20 @@ pub async fn make_sniper_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabase
         let mut token_data = trade_token_data.value().clone();
 
         if token_data.token_buy_now {
+            // Skip buy if in cooldown after 3 consecutive wins
+            let skip = BUYS_TO_SKIP.load(std::sync::atomic::Ordering::SeqCst);
+            if skip > 0 {
+                BUYS_TO_SKIP.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                info!(
+                    "[Streak] Skipping buy for {} — {} skip(s) remaining",
+                    token_data.token_mint,
+                    skip - 1
+                );
+                token_data.token_buy_now = false;
+                let _ = TOKEN_DB.upsert(token_data.token_mint, token_data.clone());
+                continue;
+            }
+
             token_data.token_buy_now = false;
             token_data.token_is_purchased = true;
             let _ = TOKEN_DB.upsert(token_data.token_mint, token_data.clone());
@@ -101,6 +115,10 @@ pub async fn make_sniper_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabase
                         );
 
                         let _ = confirm(vec![sell_ix], sell_tag).await;
+
+                        // Record trade outcome for win-streak tracking
+                        let profitable = latest_data.token_price > buy_price;
+                        record_trade_outcome(profitable);
                     }
                 }
             });
