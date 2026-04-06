@@ -113,6 +113,31 @@ pub async fn make_sniper_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabase
                     }
                 }
 
+                // Track P&L before unlocking position
+                if let Ok(Some(final_data)) = TOKEN_DB.get(sell_token_data.token_mint) {
+                    if final_data.token_price < final_data.token_buying_point_price
+                        && final_data.token_buying_point_price > 0.0
+                    {
+                        let prev = CONSECUTIVE_LOSSES.fetch_add(1, Ordering::SeqCst);
+                        let new_count = prev + 1;
+                        info!(
+                            "[P&L] LOSS | Mint: {} | BuyPrice: {:.6} | SellPrice: {:.6} | Consecutive losses: {}",
+                            sell_token_data.token_mint, final_data.token_buying_point_price, final_data.token_price, new_count
+                        );
+                        if new_count >= 2 {
+                            SKIP_NEXT_BUY.store(true, Ordering::SeqCst);
+                            CONSECUTIVE_LOSSES.store(0, Ordering::SeqCst);
+                            info!("[P&L] 2 consecutive losses — will skip next token");
+                        }
+                    } else if final_data.token_buying_point_price > 0.0 {
+                        info!(
+                            "[P&L] PROFIT | Mint: {} | BuyPrice: {:.6} | SellPrice: {:.6}",
+                            sell_token_data.token_mint, final_data.token_buying_point_price, final_data.token_price
+                        );
+                        CONSECUTIVE_LOSSES.store(0, Ordering::SeqCst);
+                    }
+                }
+
                 // Unlock: allow the bot to buy a new token
                 IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
             });

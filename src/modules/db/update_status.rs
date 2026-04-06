@@ -175,31 +175,6 @@ pub fn update_status_from_sell_event(
             let _ = TOKEN_DB.upsert(sell_event.mint.clone(), token_data.clone());
             Some(token_data.clone())
         } else {
-            // Position fully closed — track profit/loss
-            let buy_sol = *BUY_AMOUNT_SOL as f64;
-            let sell_sol = sell_event.sol_amount as f64 / 10f64.powi(9);
-
-            if sell_sol >= buy_sol {
-                // Profit: reset consecutive loss counter
-                info!(
-                    "[P&L] PROFIT +{:.4} SOL | Mint: {} | Buy: {:.4} | Sell: {:.4}",
-                    sell_sol - buy_sol, sell_event.mint, buy_sol, sell_sol
-                );
-                CONSECUTIVE_LOSSES.store(0, Ordering::SeqCst);
-            } else {
-                let prev = CONSECUTIVE_LOSSES.fetch_add(1, Ordering::SeqCst);
-                let new_count = prev + 1;
-                info!(
-                    "[P&L] LOSS -{:.4} SOL | Mint: {} | Buy: {:.4} | Sell: {:.4} | Consecutive losses: {}",
-                    buy_sol - sell_sol, sell_event.mint, buy_sol, sell_sol, new_count
-                );
-                if new_count >= 2 {
-                    SKIP_NEXT_BUY.store(true, Ordering::SeqCst);
-                    CONSECUTIVE_LOSSES.store(0, Ordering::SeqCst);
-                    info!("[P&L] 2 consecutive losses — will skip next token");
-                }
-            }
-
             let _ = TOKEN_DB.delete(sell_event.mint.clone());
             None
         }
@@ -273,6 +248,10 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
             );
 
             let _ = confirm(vec![sell_ix], sell_tag).await;
+
+            // Take-profit hit = profit, reset consecutive loss counter
+            info!("[P&L] PROFIT (TP hit) | Mint: {}", data.pump_fun_swap_accounts.mint);
+            CONSECUTIVE_LOSSES.store(0, Ordering::SeqCst);
 
             // Unlock position so bot can buy next token
             IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
