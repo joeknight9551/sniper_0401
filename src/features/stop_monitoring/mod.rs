@@ -11,37 +11,17 @@ pub async fn check_no_activity_tokens() {
             .map(|entry| entry.key().clone())
             .collect();
         for token_key in keys {
-            if let Some(mut token_data) = TOKEN_DB.get(token_key).unwrap() {
+            if let Some(token_data) = TOKEN_DB.get(token_key).unwrap() {
+                // Skip purchased tokens — their sell is handled by the
+                // per-pattern holding-time timeout in make_sniper_tx.
+                if token_data.token_is_purchased && token_data.token_balance > 0 {
+                    continue;
+                }
+
                 if Utc::now().timestamp() - token_data.last_event.last_activity_timestamp
                     >= *NO_ACTIVITY_TIME
                 {
-                    let instruction = if token_data.token_is_purchased && token_data.token_balance > 0{
-                        if token_data.token_sell_status == TokenSellStatus::None {
-                            token_data.token_sell_status = TokenSellStatus::SellTradeSubmitted;
-                            let _ = TOKEN_DB.upsert(token_key, token_data.clone());
-
-                            let tag = format!(
-                                "[Sell]\t*Stop monitoring\t\t*Mint: {}\t*No activity in last {} seconds",
-                                token_key, *NO_ACTIVITY_TIME
-                            );
-                            alert!(
-                                "[Sell]\t*Stop monitoring\t\t*Mint: {}\t*No activity in last {} seconds",
-                                token_key,
-                                *NO_ACTIVITY_TIME
-                            );
-
-                            let sell_ix = token_data
-                                .clone()
-                                .pump_fun_swap_accounts
-                                .get_sell_ix(token_data.token_balance, token_data.cashback_enabled);
-                            let mut ix = Vec::new();
-                            ix.push(sell_ix);
-
-                            (ix, tag)
-                        } else {
-                            (vec![], "".to_string())
-                        }
-                    } else {
+                    let instruction = {
                         alert!(
                             "[Stop-Tracking]\t\t*Mint: {}\t*No activity in last {} seconds",
                             token_key,

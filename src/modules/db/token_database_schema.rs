@@ -21,6 +21,8 @@ pub struct TokenDatabaseSchema {
     pub token_sell_status: TokenSellStatus,
     pub token_mint_timestamp: i64,
     pub token_buy_now: bool,
+    pub token_take_profit_pct: f64,
+    pub token_holding_time_secs: u64,
 }
 
 impl TokenDatabaseSchema {
@@ -61,6 +63,8 @@ impl TokenDatabaseSchema {
             token_sell_status: TokenSellStatus::None,
             token_mint_timestamp: mint_event.timestamp,
             token_buy_now: false,
+            token_take_profit_pct: 0.0,
+            token_holding_time_secs: 0,
         };
         let _ = TOKEN_DB.upsert(mint_event.mint.clone(), token_data.clone());
 

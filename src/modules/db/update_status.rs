@@ -186,22 +186,25 @@ pub fn update_status_from_sell_event(
     }
 }
 
-/// Check if the current price has hit 130% of our buy price.
+/// Check if the current price has hit the per-pattern take-profit target.
 /// Called on every buy/sell event price update — no polling needed.
 fn check_take_profit(token_data: &TokenDatabaseSchema) {
     if !token_data.token_is_purchased
         || token_data.token_balance == 0
         || token_data.token_buying_point_price == 0.0
         || token_data.token_sell_status != TokenSellStatus::None
+        || token_data.token_take_profit_pct == 0.0
     {
         return;
     }
 
-    let take_profit_price = token_data.token_buying_point_price * 1.5;
+    let take_profit_multiplier = token_data.token_take_profit_pct / 100.0;
+    let take_profit_price = token_data.token_buying_point_price * take_profit_multiplier;
 
     if token_data.token_price >= take_profit_price {
         info!(
-            "[TP HIT] 150% reached! BuyPrice: {:.6} → CurrentPrice: {:.6} (target: {:.6}) | Mint: {}",
+            "[TP HIT] {}% reached! BuyPrice: {:.6} → CurrentPrice: {:.6} (target: {:.6}) | Mint: {}",
+            token_data.token_take_profit_pct,
             token_data.token_buying_point_price,
             token_data.token_price,
             take_profit_price,
@@ -225,7 +228,8 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
                 .get_sell_ix(data.token_balance, data.cashback_enabled);
 
             let sell_tag = format!(
-                "[SELL]\t*150% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                "[SELL]\t*{}% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                data.token_take_profit_pct,
                 data.pump_fun_swap_accounts.mint,
                 data.token_marketcap,
                 data.token_balance,
@@ -234,7 +238,8 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
             );
 
             info!(
-                "[SELL]\t*150% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                "[SELL]\t*{}% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                data.token_take_profit_pct,
                 data.pump_fun_swap_accounts.mint,
                 data.token_marketcap,
                 data.token_balance,

@@ -67,13 +67,14 @@ pub async fn make_sniper_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabase
                 let _ = confirm(buy_ix_clone, buy_tag_clone).await;
             });
 
-            // Schedule timeout sell after 5 seconds.
-            // If price hits 130% before this, update_status will trigger the sell
+            // Schedule timeout sell using per-pattern holding time.
+            // If price hits take-profit before this, update_status will trigger the sell
             // and this timeout will find token_balance == 0 and skip.
             let sell_token_data = token_data.clone();
             let buy_price = token_data.token_price;
+            let holding_time_secs = token_data.token_holding_time_secs;
             tokio::spawn(async move {
-                sleep(Duration::from_millis(10000)).await;
+                sleep(Duration::from_secs(holding_time_secs)).await;
 
                 // Re-read latest token data from DB
                 if let Ok(Some(mut latest_data)) = TOKEN_DB.get(sell_token_data.token_mint) {
@@ -89,7 +90,8 @@ pub async fn make_sniper_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabase
                             .get_sell_ix(latest_data.token_balance, latest_data.cashback_enabled);
 
                         let sell_tag = format!(
-                            "[SELL]\t*5s timeout\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                            "[SELL]\t*{}s timeout\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                            holding_time_secs,
                             latest_data.pump_fun_swap_accounts.mint,
                             latest_data.token_marketcap,
                             latest_data.token_balance,
@@ -98,7 +100,8 @@ pub async fn make_sniper_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabase
                         );
 
                         info!(
-                            "[SELL]\t*5s timeout\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                            "[SELL]\t*{}s timeout\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                            holding_time_secs,
                             latest_data.pump_fun_swap_accounts.mint,
                             latest_data.token_marketcap,
                             latest_data.token_balance,
