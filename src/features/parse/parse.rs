@@ -154,6 +154,10 @@ pub fn get_trade_info(
             };
             mint_instruction_accounts.push(mint_accounts);
         } else if info.data.starts_with(&PUMP_FUN_BUY_DISCRIMINATOR) || info.data.starts_with(&PUMP_FUN_BUY_EXACT_SOL_IN_DISCRIMINATOR) {
+            // Need at least 16 accounts; skip unexpected short layouts
+            if info.accounts.len() < 16 {
+                return;
+            }
             let buy_accounts = BuyInstructionAccounts {
                 global: account_keys[info.accounts[0] as usize],
                 fee_recipient: account_keys[info.accounts[1] as usize],

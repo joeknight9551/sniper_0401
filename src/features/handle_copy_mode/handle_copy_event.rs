@@ -132,6 +132,7 @@ pub async fn handle_copy_event(
                 } else if let Some(buy_ix) =
                     buy_ixs_accounts.iter().find(|a| a.mint == buy_event.mint)
                 {
+                    // Best case: copy the exact swap accounts from the target's buy IX
                     updated.pump_fun_swap_accounts =
                         PumpFunSwapAccounts::from_target_buy(buy_ix.clone());
                     updated.token_buy_now = true;
@@ -142,6 +143,20 @@ pub async fn handle_copy_event(
                     info!(
                         "[CopyMode] Target {} bought {} — queuing buy of {} SOL",
                         buy_event.user, buy_event.mint, *BUY_AMOUNT_SOL
+                    );
+                    let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
+                } else {
+                    // Fallback: buy IX not found for this mint (e.g. unusual account layout),
+                    // use the swap accounts recorded at mint time (still valid for our wallet).
+                    updated.pump_fun_swap_accounts.update_creator_vault(&buy_event.creator);
+                    updated.token_buy_now = true;
+                    updated.skip_tp_sl = true;
+                    if *ONE_TIME_COPY {
+                        COPIED_MINTS.insert(buy_event.mint);
+                    }
+                    info!(
+                        "[CopyMode][Fallback] Target {} bought {} — queuing buy using mint-time accounts",
+                        buy_event.user, buy_event.mint
                     );
                     let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
                 }
