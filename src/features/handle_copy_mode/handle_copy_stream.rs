@@ -28,8 +28,13 @@ where
                     };
 
                 let trade_data = get_trade_info(ix_info, account_keys);
-                let token_data_map = handle_copy_event(trade_data, tx_id).await;
-                make_copy_tx(&token_data_map).await;
+
+                // Spawn processing so the stream loop is never blocked waiting
+                // for DB lookups, TX building or network I/O.
+                tokio::spawn(async move {
+                    let token_data_map = handle_copy_event(trade_data, tx_id).await;
+                    make_copy_tx(&token_data_map).await;
+                });
             }
 
             Err(e) => {

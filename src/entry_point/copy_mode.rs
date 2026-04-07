@@ -30,9 +30,11 @@ pub async fn main() {
         .unwrap();
     let (subscribe_tx, subscribe_rx) = grpc_client.subscribe().await.unwrap();
 
-    // Subscribe to all PumpFun transactions; filter by target wallet inside the handler
+    // Narrow the subscription to transactions that involve at least one target wallet
+    // AND the PumpFun program. The gRPC server pre-filters this, so we only receive
+    // the small subset of transactions we actually care about.
     let subscribe_filter = SubscribeRequestFilterTransactions {
-        account_include: vec![],
+        account_include: TARGET_WALLETS.iter().cloned().collect(),
         account_exclude: vec![],
         account_required: vec![PUMPFUN_PROGRAM_ID.to_string()],
         vote: Some(false),
