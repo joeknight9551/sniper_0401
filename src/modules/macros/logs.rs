@@ -88,3 +88,41 @@ macro_rules! error {
   }}
 }
 
+#[macro_export]
+macro_rules! wallet_log {
+  ($($arg:tt)*) => {{
+    let now = chrono::Local::now();
+    let formatted_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
+    let millis = format!("{:03}", now.timestamp_subsec_millis());
+    let micros = format!("{:03}", now.timestamp_subsec_micros() % 1000);
+
+    let timestamp = format!("{}.{} {}", formatted_time, millis, micros);
+    let tab_prefix = std::iter::repeat("\t").take($crate::INFO_LEVEL as usize).collect::<String>();
+    let msg = format!($($arg)*);
+    let file_msg = format!("{} {} {}[WalletTracker] {}", timestamp, $crate::INFO_LEVEL_STR, tab_prefix, msg);
+
+    println!("{}", file_msg);
+    $crate::log_to_file(&file_msg);
+    $crate::wallet_log_to_file(&file_msg);
+  }}
+}
+
+#[macro_export]
+macro_rules! wallet_error {
+  ($($arg:tt)*) => {{
+    let now = chrono::Local::now();
+    let formatted_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
+    let millis = format!("{:03}", now.timestamp_subsec_millis());
+    let micros = format!("{:03}", now.timestamp_subsec_micros() % 1000);
+
+    let timestamp = format!("{}.{} {}", formatted_time, millis, micros);
+    let tab_prefix = std::iter::repeat("\t").take($crate::ERROR_LEVEL as usize).collect::<String>();
+    let msg = format!($($arg)*);
+    let file_msg = format!("{} {} {}[WalletTracker] {}", timestamp, $crate::ERROR_LEVEL_STR, tab_prefix, msg);
+
+    println!("{}", file_msg);
+    $crate::log_to_file(&file_msg);
+    $crate::wallet_log_to_file(&file_msg);
+  }}
+}
+

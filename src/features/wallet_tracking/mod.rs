@@ -47,7 +47,7 @@ async fn connect_wallet_grpc(
 pub async fn start_wallet_tracker() {
     let tracking_wallet_str = &CONFIG.wallet_tracking_config.tracking_wallet;
     if tracking_wallet_str.is_empty() {
-        info!("[WalletTracker] No tracking wallet configured, wallet filter disabled");
+        wallet_log!("No tracking wallet configured, wallet filter disabled");
         // If no wallet configured, auto-confirm so CU pattern alone works
         WALLET_TRACKING_CONFIRMED.store(true, Ordering::SeqCst);
         return;
@@ -56,7 +56,7 @@ pub async fn start_wallet_tracker() {
     let start_wallet =
         Pubkey::from_str(tracking_wallet_str).expect("Invalid tracking wallet address");
 
-    info!("[WalletTracker] Tracking wallet: {}", start_wallet);
+    wallet_log!("Tracking wallet: {}", start_wallet);
 
     let min_recipients = CONFIG.wallet_tracking_config.min_distribution_recipients;
     let min_dist_ratio = CONFIG.wallet_tracking_config.min_distribution_ratio;
@@ -67,22 +67,22 @@ pub async fn start_wallet_tracker() {
     let initial_balance = loop {
         match RPC_CLIENT.get_balance(&start_wallet).await {
             Ok(bal) => {
-                info!(
-                    "[WalletTracker] Initial balance (X): {} lamports ({:.4} SOL)",
+                wallet_log!(
+                    "Initial balance (X): {} lamports ({:.4} SOL)",
                     bal,
                     bal as f64 / 1e9
                 );
                 break bal;
             }
             Err(e) => {
-                error!("[WalletTracker] Failed to get balance: {}, retrying...", e);
+                wallet_error!("Failed to get balance: {}, retrying...", e);
                 sleep(Duration::from_millis(500)).await;
             }
         }
     };
 
     if initial_balance == 0 {
-        info!("[WalletTracker] Wallet has 0 balance, waiting for funds...");
+        wallet_log!("Wallet has 0 balance, waiting for funds...");
     }
 
     let mut current_wallet = start_wallet;
@@ -94,15 +94,15 @@ pub async fn start_wallet_tracker() {
 
     // Main tracking loop — reconnects on error
     loop {
-        info!(
-            "[WalletTracker] Subscribing to wallet: {}",
+        wallet_log!(
+            "Subscribing to wallet: {}",
             current_wallet
         );
 
         let mut subscribe_rx = match connect_wallet_grpc(current_wallet).await {
             Ok(rx) => rx,
             Err(e) => {
-                error!("[WalletTracker] gRPC setup failed: {}, retrying...", e);
+                wallet_error!("gRPC setup failed: {}, retrying...", e);
                 sleep(Duration::from_secs(2)).await;
                 continue;
             }
@@ -113,7 +113,7 @@ pub async fn start_wallet_tracker() {
             let update = match result {
                 Ok(u) => u,
                 Err(e) => {
-                    error!("[WalletTracker] Stream error: {}, reconnecting...", e);
+                    wallet_error!("Stream error: {}, reconnecting...", e);
                     break;
                 }
             };
@@ -133,8 +133,8 @@ pub async fn start_wallet_tracker() {
                 if post > pre {
                     let received = post - pre;
                     x_lamports += received;
-                    info!(
-                        "[WalletTracker] Incoming: +{:.4} SOL to {} | X updated to {:.4} SOL",
+                    wallet_log!(
+                        "Incoming: +{:.4} SOL to {} | X updated to {:.4} SOL",
                         received as f64 / 1e9,
                         current_wallet,
                         x_lamports as f64 / 1e9,
@@ -157,8 +157,8 @@ pub async fn start_wallet_tracker() {
             let total_sent: u64 = transfers.iter().map(|t| t.lamports).sum();
             let recipient_count = transfers.len();
 
-            info!(
-                "[WalletTracker] TX: {} | Wallet: {} | Sent: {:.4} SOL to {} recipient(s) | PostBal: {:.4} SOL",
+            wallet_log!(
+                "TX: {} | Wallet: {} | Sent: {:.4} SOL to {} recipient(s) | PostBal: {:.4} SOL",
                 tx_id,
                 current_wallet,
                 total_sent as f64 / 1e9,
@@ -183,8 +183,8 @@ pub async fn start_wallet_tracker() {
 
                 if bulk_of_sol && wallet_post_balance < chain_min_balance {
                     let next_wallet = largest.to;
-                    info!(
-                        "[WalletTracker] Chain transfer detected: {} → {} ({:.4} SOL, ignored {:.4} SOL to {} others)",
+                    wallet_log!(
+                        "Chain transfer detected: {} → {} ({:.4} SOL, ignored {:.4} SOL to {} others)",
                         current_wallet,
                         next_wallet,
                         largest.lamports as f64 / 1e9,
@@ -195,8 +195,8 @@ pub async fn start_wallet_tracker() {
                     // Update X to the amount that moved to the next wallet
                     if x_lamports == 0 {
                         x_lamports = largest.lamports;
-                        info!(
-                            "[WalletTracker] Updated X = {:.4} SOL",
+                        wallet_log!(
+                            "Updated X = {:.4} SOL",
                             x_lamports as f64 / 1e9
                         );
                     }
@@ -214,14 +214,14 @@ pub async fn start_wallet_tracker() {
                     // If X was 0 (starting wallet had no funds initially), use pre-distribution balance
                     if x_lamports == 0 {
                         x_lamports = total_sent + wallet_post_balance;
-                        info!(
-                            "[WalletTracker] Updated X = {:.4} SOL (from distribution start)",
+                        wallet_log!(
+                            "Updated X = {:.4} SOL (from distribution start)",
                             x_lamports as f64 / 1e9
                         );
                     }
 
-                    info!(
-                        "[WalletTracker] Distribution phase started from wallet: {}",
+                    wallet_log!(
+                        "Distribution phase started from wallet: {}",
                         current_wallet
                     );
                 }
@@ -239,8 +239,8 @@ pub async fn start_wallet_tracker() {
                     } else {
                         0.0
                     };
-                    info!(
-                        "[WalletTracker] Distribution window expired (>1s). {:.4} SOL ({:.1}%) to {} recipients — NOT confirmed",
+                    wallet_log!(
+                        "Distribution window expired (>1s). {:.4} SOL ({:.1}%) to {} recipients — NOT confirmed",
                         distribution_total as f64 / 1e9,
                         dist_ratio * 100.0,
                         distribution_recipients.len(),
@@ -267,8 +267,8 @@ pub async fn start_wallet_tracker() {
                     0.0
                 };
 
-                info!(
-                    "[WalletTracker] Distribution: {:.4} SOL to {} recipients ({:.1}% of X={:.4} SOL) [{:.0}ms elapsed]",
+                wallet_log!(
+                    "Distribution: {:.4} SOL to {} recipients ({:.1}% of X={:.4} SOL) [{:.0}ms elapsed]",
                     distribution_total as f64 / 1e9,
                     distribution_recipients.len(),
                     dist_ratio * 100.0,
@@ -280,8 +280,8 @@ pub async fn start_wallet_tracker() {
                 if distribution_recipients.len() >= min_recipients
                     && dist_ratio >= min_dist_ratio
                 {
-                    info!(
-                        "[WalletTracker] CONFIRMED! {:.4} SOL ({:.1}%) distributed to {} wallets in {:.0}ms",
+                    wallet_log!(
+                        "CONFIRMED! {:.4} SOL ({:.1}%) distributed to {} wallets in {:.0}ms",
                         distribution_total as f64 / 1e9,
                         dist_ratio * 100.0,
                         distribution_recipients.len(),
@@ -304,8 +304,8 @@ pub async fn start_wallet_tracker() {
                 if dist_ratio < max_skip_ratio
                     && wallet_post_balance < chain_min_balance
                 {
-                    info!(
-                        "[WalletTracker] Distribution too small ({:.1}% < {}%), NOT confirmed",
+                    wallet_log!(
+                        "Distribution too small ({:.1}% < {}%), NOT confirmed",
                         dist_ratio * 100.0,
                         max_skip_ratio * 100.0,
                     );
@@ -322,8 +322,8 @@ pub async fn start_wallet_tracker() {
 
                 // Check if wallet is now empty — distribution is done but didn't hit confirm
                 if wallet_post_balance < chain_min_balance {
-                    info!(
-                        "[WalletTracker] Distribution done ({:.1}%) but below confirm threshold ({:.1}%)",
+                    wallet_log!(
+                        "Distribution done ({:.1}%) but below confirm threshold ({:.1}%)",
                         dist_ratio * 100.0,
                         min_dist_ratio * 100.0,
                     );
