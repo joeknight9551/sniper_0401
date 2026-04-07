@@ -1,7 +1,7 @@
 use crate::*;
 use futures::{SinkExt, StreamExt};
 use solana_sdk::pubkey::Pubkey;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
@@ -45,6 +45,12 @@ async fn connect_wallet_grpc(
 /// Run the wallet tracker. Connects via gRPC and follows the wallet chain.
 /// Sets WALLET_TRACKING_CONFIRMED when distribution threshold is met.
 pub async fn start_wallet_tracker() {
+    if !CONFIG.wallet_tracking_config.enabled {
+        wallet_log!("Wallet tracking disabled in config");
+        WALLET_TRACKING_CONFIRMED.store(true, Ordering::SeqCst);
+        return;
+    }
+
     let tracking_wallet_str = &CONFIG.wallet_tracking_config.tracking_wallet;
     if tracking_wallet_str.is_empty() {
         wallet_log!("No tracking wallet configured, wallet filter disabled");
@@ -58,9 +64,6 @@ pub async fn start_wallet_tracker() {
 
     wallet_log!("Tracking wallet: {}", start_wallet);
 
-    let min_recipients = CONFIG.wallet_tracking_config.min_distribution_recipients;
-    let min_dist_ratio = CONFIG.wallet_tracking_config.min_distribution_ratio;
-    let max_skip_ratio = CONFIG.wallet_tracking_config.max_skip_ratio;
     let chain_min_balance = CONFIG.wallet_tracking_config.chain_transfer_min_balance_lamports;
 
     // Get initial SOL balance of wallet (a) — this is X
@@ -87,8 +90,6 @@ pub async fn start_wallet_tracker() {
 
     let mut current_wallet = start_wallet;
     let mut x_lamports = initial_balance;
-    let mut distribution_recipients: HashSet<Pubkey> = HashSet::new();
-    let mut distribution_total: u64 = 0;
     let mut is_distributing = false;
     let mut distribution_start_time: Option<Instant> = None;
 
@@ -234,21 +235,13 @@ pub async fn start_wallet_tracker() {
                     .unwrap_or(Duration::ZERO);
 
                 if elapsed > Duration::from_secs(1) {
-                    let dist_ratio = if x_lamports > 0 {
-                        distribution_total as f64 / x_lamports as f64
-                    } else {
-                        0.0
-                    };
                     wallet_log!(
-                        "Distribution window expired (>1s). {:.4} SOL ({:.1}%) to {} recipients — NOT confirmed",
-                        distribution_total as f64 / 1e9,
-                        dist_ratio * 100.0,
-                        distribution_recipients.len(),
+                        "Distribution window expired (>1s). Balance: {:.4} SOL, threshold: {:.4} SOL — NOT confirmed",
+                        wallet_post_balance as f64 / 1e9,
+                        (x_lamports / 3) as f64 / 1e9,
                     );
 
                     // Reset and go back to original wallet
-                    distribution_recipients.clear();
-                    distribution_total = 0;
                     is_distributing = false;
                     distribution_start_time = None;
                     current_wallet = start_wallet;
@@ -256,81 +249,27 @@ pub async fn start_wallet_tracker() {
                     break;
                 }
 
-                for transfer in &transfers {
-                    distribution_recipients.insert(transfer.to);
-                    distribution_total += transfer.lamports;
-                }
-
-                let dist_ratio = if x_lamports > 0 {
-                    distribution_total as f64 / x_lamports as f64
-                } else {
-                    0.0
-                };
+                let threshold = x_lamports / 3;
 
                 wallet_log!(
-                    "Distribution: {:.4} SOL to {} recipients ({:.1}% of X={:.4} SOL) [{:.0}ms elapsed]",
-                    distribution_total as f64 / 1e9,
-                    distribution_recipients.len(),
-                    dist_ratio * 100.0,
+                    "Distribution: balance {:.4} SOL, threshold {:.4} SOL (X/3), X={:.4} SOL [{:.0}ms elapsed]",
+                    wallet_post_balance as f64 / 1e9,
+                    threshold as f64 / 1e9,
                     x_lamports as f64 / 1e9,
                     elapsed.as_millis(),
                 );
 
-                // Check confirmation: enough recipients AND enough SOL distributed (within 1s)
-                if distribution_recipients.len() >= min_recipients
-                    && dist_ratio >= min_dist_ratio
-                {
+                // Confirm: wallet balance dropped to X/3 within 1s
+                if wallet_post_balance <= threshold {
                     wallet_log!(
-                        "CONFIRMED! {:.4} SOL ({:.1}%) distributed to {} wallets in {:.0}ms",
-                        distribution_total as f64 / 1e9,
-                        dist_ratio * 100.0,
-                        distribution_recipients.len(),
+                        "CONFIRMED! Balance {:.4} SOL <= X/3 ({:.4} SOL) in {:.0}ms",
+                        wallet_post_balance as f64 / 1e9,
+                        threshold as f64 / 1e9,
                         elapsed.as_millis(),
                     );
                     WALLET_TRACKING_CONFIRMED.store(true, Ordering::SeqCst);
 
                     // Reset state for next cycle
-                    distribution_recipients.clear();
-                    distribution_total = 0;
-                    is_distributing = false;
-                    distribution_start_time = None;
-                    // Go back to tracking the original wallet
-                    current_wallet = start_wallet;
-                    x_lamports = 0; // Will be refreshed on next cycle
-                    break; // Reconnect with original wallet
-                }
-
-                // Reject early: distributed too little
-                if dist_ratio < max_skip_ratio
-                    && wallet_post_balance < chain_min_balance
-                {
-                    wallet_log!(
-                        "Distribution too small ({:.1}% < {}%), NOT confirmed",
-                        dist_ratio * 100.0,
-                        max_skip_ratio * 100.0,
-                    );
-
-                    // Reset and go back to original wallet
-                    distribution_recipients.clear();
-                    distribution_total = 0;
-                    is_distributing = false;
-                    distribution_start_time = None;
-                    current_wallet = start_wallet;
-                    x_lamports = 0;
-                    break;
-                }
-
-                // Check if wallet is now empty — distribution is done but didn't hit confirm
-                if wallet_post_balance < chain_min_balance {
-                    wallet_log!(
-                        "Distribution done ({:.1}%) but below confirm threshold ({:.1}%)",
-                        dist_ratio * 100.0,
-                        min_dist_ratio * 100.0,
-                    );
-
-                    // Reset and go back to original wallet
-                    distribution_recipients.clear();
-                    distribution_total = 0;
                     is_distributing = false;
                     distribution_start_time = None;
                     current_wallet = start_wallet;
