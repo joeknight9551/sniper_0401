@@ -22,6 +22,7 @@ pub struct Config {
     pub filter_setting: FilterSetting,
     pub target_wallets: TargetWallets,
     pub nonce_config: NonceConfig,
+    pub wallet_tracking_config: WalletTrackingConfig,
 }
 
 

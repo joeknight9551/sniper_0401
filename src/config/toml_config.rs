@@ -98,3 +98,12 @@ pub struct NonceConfig {
     pub nonce_account: String,
     pub nonce_authority_key: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct WalletTrackingConfig {
+    pub tracking_wallet: String,
+    pub min_distribution_recipients: usize,
+    pub min_distribution_ratio: f64,
+    pub max_skip_ratio: f64,
+    pub chain_transfer_min_balance_lamports: u64,
+}

@@ -25,6 +25,11 @@ pub async fn main() {
         }
     });
 
+    // Start wallet tracker (separate gRPC connection)
+    tokio::spawn(async {
+        start_wallet_tracker().await;
+    });
+
     let mut grpc_client = setup_grpc_client(GRPC_ENDPOINT.to_string(), GRPC_TOKEN.to_string())
         .await
         .unwrap();

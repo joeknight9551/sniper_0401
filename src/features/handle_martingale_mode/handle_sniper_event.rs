@@ -63,6 +63,11 @@ pub async fn handle_sniper_event(
                             "[Skip] Skipping buy for {} due to 2 consecutive losses",
                             buy_event.mint
                         );
+                    } else if !WALLET_TRACKING_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) {
+                        info!(
+                            "[Skip] CU matched for {} but wallet tracking not confirmed yet",
+                            buy_event.mint
+                        );
                     } else {
                         updated_token_data.token_take_profit_pct = config.take_profit_pct;
                         updated_token_data.token_holding_time_secs = config.holding_time_secs;
@@ -94,6 +99,11 @@ pub async fn handle_sniper_event(
                             SKIP_NEXT_BUY.store(false, std::sync::atomic::Ordering::SeqCst);
                             info!(
                                 "[Skip] Skipping buy for {} due to 2 consecutive losses",
+                                sell_event.mint
+                            );
+                        } else if !WALLET_TRACKING_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) {
+                            info!(
+                                "[Skip] CU matched for {} but wallet tracking not confirmed yet",
                                 sell_event.mint
                             );
                         } else {

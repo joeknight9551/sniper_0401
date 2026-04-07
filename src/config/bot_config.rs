@@ -54,6 +54,8 @@ lazy_static! {
     pub static ref CONSECUTIVE_LOSSES: AtomicU32 = AtomicU32::new(0);
     /// When true, skip the next matching token, then reset.
     pub static ref SKIP_NEXT_BUY: AtomicBool = AtomicBool::new(false);
+    /// Set to true when wallet tracking confirms the distribution pattern.
+    pub static ref WALLET_TRACKING_CONFIRMED: AtomicBool = AtomicBool::new(false);
 }
 
 pub static RPC_ENDPOINTL: Lazy<String> =
