@@ -191,7 +191,8 @@ pub fn update_status_from_sell_event(
 /// Check if the current price has hit the per-pattern take-profit target.
 /// Called on every buy/sell event price update — no polling needed.
 fn check_take_profit(token_data: &TokenDatabaseSchema) {
-    if !token_data.token_is_purchased
+    if token_data.skip_tp_sl
+        || !token_data.token_is_purchased
         || token_data.token_balance == 0
         || token_data.token_buying_point_price == 0.0
         || token_data.token_sell_status != TokenSellStatus::None
@@ -265,7 +266,8 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
 /// stop_loss config value is the percentage of buy price at which to sell.
 /// e.g. stop_loss = 70 means sell when price drops to 70% of buy price (30% loss).
 fn check_stop_loss(token_data: &TokenDatabaseSchema) {
-    if !token_data.token_is_purchased
+    if token_data.skip_tp_sl
+        || !token_data.token_is_purchased
         || token_data.token_balance == 0
         || token_data.token_buying_point_price == 0.0
         || token_data.token_sell_status != TokenSellStatus::None

@@ -129,6 +129,7 @@ pub async fn handle_copy_event(
                     updated.pump_fun_swap_accounts =
                         PumpFunSwapAccounts::from_target_buy(buy_ix.clone());
                     updated.token_buy_now = true;
+                    updated.skip_tp_sl = true;
                     if *ONE_TIME_COPY {
                         COPIED_MINTS.insert(buy_event.mint);
                     }
@@ -176,6 +177,7 @@ pub async fn handle_copy_event(
                         token_buy_now: true,
                         token_take_profit_pct: 0.0,
                         token_holding_time_secs: 0,
+                        skip_tp_sl: true,
                     };
                     let _ = TOKEN_DB.upsert(buy_event.mint, new_token.clone());
                     if *ONE_TIME_COPY {
