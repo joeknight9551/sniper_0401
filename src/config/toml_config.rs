@@ -66,6 +66,7 @@ pub struct MonitorConfig {
 #[derive(Debug, Deserialize)]
 pub struct BuySetting {
     pub buy_amount_sol: f64,
+    pub one_time_copy: bool,
 }
 
 #[derive(Debug, Deserialize)]

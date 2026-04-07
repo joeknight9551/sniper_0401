@@ -1,4 +1,5 @@
 use crate::*;
+use dashmap::DashSet;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use reqwest::Client;
@@ -114,6 +115,13 @@ pub async fn show_bot_settings() {
 pub static DEV_MODE: Lazy<bool> = Lazy::new(|| CONFIG.mode.is_dev_mode);
 
 pub static BUY_AMOUNT_SOL: Lazy<f64> = Lazy::new(|| CONFIG.buy_setting.buy_amount_sol);
+
+pub static ONE_TIME_COPY: Lazy<bool> = Lazy::new(|| CONFIG.buy_setting.one_time_copy);
+
+lazy_static! {
+    /// Tracks mints that have already been copy-traded (used when one_time_copy = true).
+    pub static ref COPIED_MINTS: DashSet<Pubkey> = DashSet::new();
+}
 
 pub static BUY_TX_COUNTER: Lazy<AtomicI32> =
     Lazy::new(|| AtomicI32::new(CONFIG.mode.buy_tx_counter));

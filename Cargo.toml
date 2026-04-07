@@ -36,5 +36,9 @@ name = "main_mode"
 path = "src/entry_point/main_mode.rs"
 
 [[bin]]
+name = "copy_mode"
+path = "src/entry_point/copy_mode.rs"
+
+[[bin]]
 name = "create_nonce"
 path = "src/bin/create_nonce.rs"
