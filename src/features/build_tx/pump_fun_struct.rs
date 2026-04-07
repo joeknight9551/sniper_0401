@@ -83,7 +83,7 @@ impl PumpFunSwapAccounts {
         let associated_user = get_associated_token_address_with_program_id(
             &WALLET_PUB_KEY,
             &buy_instruction_accounts.mint,
-            &spl_token::ID,
+            &buy_instruction_accounts.token_program,
         );
 
         let (bonding_curve_v2_pda, _) = Pubkey::find_program_address(
