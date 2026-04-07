@@ -178,7 +178,7 @@ pub async fn start_wallet_tracker() {
 
                 // Chain transfer: the largest recipient got most of the SOL
                 // and what's left (post-balance + small sends) is negligible
-                let bulk_of_sol = x_lamports > 0 && largest.lamports as f64 >= x_lamports as f64 * 0.9
+                let bulk_of_sol = x_lamports > 0 && largest.lamports as f64 >= x_lamports as f64 * 0.95
                     || x_lamports == 0 && largest.lamports as f64 >= total_sent as f64 * 0.9;
 
                 if bulk_of_sol && wallet_post_balance < chain_min_balance {
