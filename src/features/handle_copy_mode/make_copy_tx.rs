@@ -2,7 +2,6 @@ use crate::*;
 use colored::*;
 use dashmap::DashMap;
 use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
-use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 pub async fn make_copy_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabaseSchema>) {
@@ -10,12 +9,6 @@ pub async fn make_copy_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabaseSc
         let mut token_data = trade_token_data.value().clone();
 
         if token_data.token_buy_now {
-            // Only one position at a time
-            if IS_HOLDING_POSITION.load(Ordering::SeqCst) {
-                continue;
-            }
-            IS_HOLDING_POSITION.store(true, Ordering::SeqCst);
-
             token_data.token_buy_now = false;
             token_data.token_is_purchased = true;
             let _ = TOKEN_DB.upsert(token_data.token_mint, token_data.clone());

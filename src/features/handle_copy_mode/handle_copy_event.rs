@@ -77,7 +77,6 @@ pub async fn handle_copy_event(
                     // Release the position lock immediately so a concurrent buy event
                     // (same block or next stream update) can proceed without waiting
                     // for our sell transaction to confirm.
-                    IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
 
                     info!(
                         "[CopyMode] Target {} sold {} — following sell of {} tokens, position unlocked",
@@ -116,7 +115,6 @@ pub async fn handle_copy_event(
 
             if is_target
                 && !updated.token_is_purchased
-                && !IS_HOLDING_POSITION.load(Ordering::SeqCst)
                 && !(*ONE_TIME_COPY && COPIED_MINTS.contains(&buy_event.mint))
             {
                 if SKIP_NEXT_BUY.load(Ordering::SeqCst) {
@@ -142,7 +140,7 @@ pub async fn handle_copy_event(
                 }
             }
             return_data.insert(updated.token_mint, updated);
-        } else if is_target && !IS_HOLDING_POSITION.load(Ordering::SeqCst) {
+        } else if is_target {
             // Token not yet in DB (no mint event seen) — create a minimal record from the buy IX
             let already_copied = *ONE_TIME_COPY && COPIED_MINTS.contains(&buy_event.mint);
             if !already_copied {
