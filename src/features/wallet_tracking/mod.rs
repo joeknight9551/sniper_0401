@@ -234,9 +234,9 @@ pub async fn start_wallet_tracker() {
                     .map(|t| t.elapsed())
                     .unwrap_or(Duration::ZERO);
 
-                if elapsed > Duration::from_secs(1) {
+                if elapsed > Duration::from_secs(3) {
                     wallet_log!(
-                        "Distribution window expired (>1s). Balance: {:.4} SOL, threshold: {:.4} SOL — NOT confirmed",
+                        "Distribution window expired (>3s). Balance: {:.4} SOL, threshold: {:.4} SOL — NOT confirmed",
                         wallet_post_balance as f64 / 1e9,
                         (x_lamports / 3) as f64 / 1e9,
                     );
