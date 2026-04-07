@@ -47,6 +47,61 @@ pub async fn handle_copy_event(
         }
     }
 
+    // ── Sell events FIRST ─────────────────────────────────────────────────────
+    // Process sells before buys so that if a target wallet sells token A and buys
+    // token B in the same transaction (or same block), the position lock is already
+    // released before we evaluate the buy.
+    for sell_event in sell_events.iter() {
+        let is_target_sell =
+            TARGET_WALLETS.iter().any(|w| *w == sell_event.user.to_string());
+
+        if let Some(token_data) = TOKEN_DB.get(sell_event.mint).unwrap() {
+            if let Some(mut updated) = update_status_from_sell_event(
+                token_data.clone(),
+                sell_event.clone(),
+                tx_id.to_string(),
+                cu_dummy,
+            ) {
+                // If a target wallet sold and we hold this token, follow the sell immediately
+                if is_target_sell
+                    && updated.token_is_purchased
+                    && updated.token_balance > 0
+                    && updated.token_sell_status == TokenSellStatus::None
+                {
+                    updated.token_sell_status = TokenSellStatus::SellTradeSubmitted;
+                    updated
+                        .pump_fun_swap_accounts
+                        .update_creator_vault(&updated.token_creator);
+                    let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
+
+                    // Release the position lock immediately so a concurrent buy event
+                    // (same block or next stream update) can proceed without waiting
+                    // for our sell transaction to confirm.
+                    IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
+
+                    info!(
+                        "[CopyMode] Target {} sold {} — following sell of {} tokens, position unlocked",
+                        sell_event.user, sell_event.mint, updated.token_balance
+                    );
+
+                    let mut sell_data = updated.clone();
+                    tokio::spawn(async move {
+                        let sell_ix = sell_data.pump_fun_swap_accounts.get_sell_ix(
+                            sell_data.token_balance,
+                            sell_data.cashback_enabled,
+                        );
+                        let sell_tag = format!(
+                            "[CopySell]\t*Mint: {}\t*Amount: {}",
+                            sell_data.token_mint, sell_data.token_balance
+                        );
+                        let _ = confirm(vec![sell_ix], sell_tag).await;
+                    });
+                }
+                return_data.insert(updated.token_mint, updated);
+            }
+        }
+    }
+
     // ── Buy events ────────────────────────────────────────────────────────────
     for buy_event in buy_events.iter() {
         let is_target = TARGET_WALLETS.iter().any(|w| *w == buy_event.user.to_string());
@@ -134,54 +189,6 @@ pub async fn handle_copy_event(
                     );
                     return_data.insert(buy_event.mint, new_token);
                 }
-            }
-        }
-    }
-
-    // ── Sell events ───────────────────────────────────────────────────────────
-    for sell_event in sell_events.iter() {
-        let is_target_sell =
-            TARGET_WALLETS.iter().any(|w| *w == sell_event.user.to_string());
-
-        if let Some(token_data) = TOKEN_DB.get(sell_event.mint).unwrap() {
-            if let Some(mut updated) = update_status_from_sell_event(
-                token_data.clone(),
-                sell_event.clone(),
-                tx_id.to_string(),
-                cu_dummy,
-            ) {
-                // If a target wallet sold and we hold this token, follow the sell immediately
-                if is_target_sell
-                    && updated.token_is_purchased
-                    && updated.token_balance > 0
-                    && updated.token_sell_status == TokenSellStatus::None
-                {
-                    updated.token_sell_status = TokenSellStatus::SellTradeSubmitted;
-                    updated
-                        .pump_fun_swap_accounts
-                        .update_creator_vault(&updated.token_creator);
-                    let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
-
-                    info!(
-                        "[CopyMode] Target {} sold {} — following sell of {} tokens",
-                        sell_event.user, sell_event.mint, updated.token_balance
-                    );
-
-                    let mut sell_data = updated.clone();
-                    tokio::spawn(async move {
-                        let sell_ix = sell_data.pump_fun_swap_accounts.get_sell_ix(
-                            sell_data.token_balance,
-                            sell_data.cashback_enabled,
-                        );
-                        let sell_tag = format!(
-                            "[CopySell]\t*Mint: {}\t*Amount: {}",
-                            sell_data.token_mint, sell_data.token_balance
-                        );
-                        let _ = confirm(vec![sell_ix], sell_tag).await;
-                        IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
-                    });
-                }
-                return_data.insert(updated.token_mint, updated);
             }
         }
     }
