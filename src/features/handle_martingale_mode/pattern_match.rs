@@ -93,6 +93,9 @@ fn load_patterns_from_file(path: &str) -> Result<Vec<CuPatternEntry>, Box<dyn st
 /// Record a transaction's Compute Budget info for a token and check if the
 /// accumulated history matches any known pattern. Returns the matched pattern's
 /// trade config (take profit %, holding time) if found.
+///
+/// When a shorter pattern matches but a longer pattern could still match
+/// (current history is a valid prefix), we wait for more events before triggering.
 pub fn record_and_match_cu_pattern(
     mint: Pubkey,
     cu_info: ComputeBudgetInfo,
@@ -103,34 +106,70 @@ pub fn record_and_match_cu_pattern(
     // Append this transaction's CU data
     history.push((cu_info.unit_limit, cu_info.unit_price as u64));
 
-    // Check against every loaded pattern
+    let mut best_match: Option<&CuPatternEntry> = None;
+    let mut has_longer_potential = false;
+
     for pattern in CU_PATTERNS.iter() {
         let pattern_len = pattern.cu_pairs.len();
 
-        // We need exactly `pattern_len` transactions recorded to compare
-        if history.len() < pattern_len {
-            continue;
+        if history.len() >= pattern_len {
+            // Check if the first `pattern_len` entries match this pattern
+            let first_n = &history[..pattern_len];
+            let matched = first_n
+                .iter()
+                .zip(pattern.cu_pairs.iter())
+                .all(|((hist_limit, hist_price), (pat_limit, pat_price))| {
+                    *hist_limit == *pat_limit && *hist_price == *pat_price
+                });
+
+            if matched {
+                // Keep the longest matching pattern
+                if best_match.is_none()
+                    || pattern_len > best_match.unwrap().cu_pairs.len()
+                {
+                    best_match = Some(pattern);
+                }
+            }
+        } else {
+            // history.len() < pattern_len — check if history is a valid prefix of this pattern
+            let prefix = &pattern.cu_pairs[..history.len()];
+            let is_prefix = history
+                .iter()
+                .zip(prefix.iter())
+                .all(|((hist_limit, hist_price), (pat_limit, pat_price))| {
+                    *hist_limit == *pat_limit && *hist_price == *pat_price
+                });
+
+            if is_prefix {
+                has_longer_potential = true;
+            }
         }
+    }
 
-        // Compare the first `pattern_len` entries of the history with the pattern
-        let first_n = &history[..pattern_len];
-        let matched = first_n
-            .iter()
-            .zip(pattern.cu_pairs.iter())
-            .all(|((hist_limit, hist_price), (pat_limit, pat_price))| {
-                *hist_limit == *pat_limit && *hist_price == *pat_price
-            });
-
-        if matched {
+    // If a longer pattern could still match, wait for more events
+    if has_longer_potential {
+        if let Some(m) = &best_match {
             info!(
-                "[Pattern Match] Token {} matched CU pattern after {} txs: {:?} | TP: {}% | Hold: {}s",
-                mint, pattern_len, pattern.cu_pairs, pattern.take_profit_pct, pattern.holding_time_secs
+                "[Pattern] Token {} matched {} CU pairs but longer pattern possible — waiting",
+                mint, m.cu_pairs.len()
             );
-            return Some(MatchedPatternConfig {
-                take_profit_pct: pattern.take_profit_pct,
-                holding_time_secs: pattern.holding_time_secs,
-            });
         }
+        return None;
+    }
+
+    if let Some(matched_pattern) = best_match {
+        info!(
+            "[Pattern Match] Token {} matched CU pattern after {} txs: {:?} | TP: {}% | Hold: {}s",
+            mint,
+            matched_pattern.cu_pairs.len(),
+            matched_pattern.cu_pairs,
+            matched_pattern.take_profit_pct,
+            matched_pattern.holding_time_secs
+        );
+        return Some(MatchedPatternConfig {
+            take_profit_pct: matched_pattern.take_profit_pct,
+            holding_time_secs: matched_pattern.holding_time_secs,
+        });
     }
 
     None

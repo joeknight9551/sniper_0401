@@ -66,30 +66,8 @@ pub async fn start_wallet_tracker() {
 
     let chain_min_balance = CONFIG.wallet_tracking_config.chain_transfer_min_balance_lamports;
 
-    // Get initial SOL balance of wallet (a) — this is X
-    let initial_balance = loop {
-        match RPC_CLIENT.get_balance(&start_wallet).await {
-            Ok(bal) => {
-                wallet_log!(
-                    "Initial balance (X): {} lamports ({:.4} SOL)",
-                    bal,
-                    bal as f64 / 1e9
-                );
-                break bal;
-            }
-            Err(e) => {
-                wallet_error!("Failed to get balance: {}, retrying...", e);
-                sleep(Duration::from_millis(500)).await;
-            }
-        }
-    };
-
-    if initial_balance == 0 {
-        wallet_log!("Wallet has 0 balance, waiting for funds...");
-    }
-
     let mut current_wallet = start_wallet;
-    let mut x_lamports = initial_balance;
+    let mut x_lamports: u64 = 0; // Will be set from first gRPC transaction's pre_balance
     let mut is_distributing = false;
     let mut distribution_start_time: Option<Instant> = None;
 
@@ -128,6 +106,22 @@ pub async fn start_wallet_tracker() {
 
             // Detect incoming SOL: if wallet's balance increased, update X
             let wallet_idx = account_keys.iter().position(|k| *k == current_wallet);
+
+            // Set initial X from first gRPC pre_balance if not yet known
+            if x_lamports == 0 {
+                if let Some(idx) = wallet_idx {
+                    let pre = pre_balances.get(idx).copied().unwrap_or(0);
+                    if pre > 0 {
+                        x_lamports = pre;
+                        wallet_log!(
+                            "Initial balance (X) from gRPC: {} lamports ({:.4} SOL)",
+                            x_lamports,
+                            x_lamports as f64 / 1e9,
+                        );
+                    }
+                }
+            }
+
             if let Some(idx) = wallet_idx {
                 let pre = pre_balances.get(idx).copied().unwrap_or(0);
                 let post = post_balances.get(idx).copied().unwrap_or(0);
