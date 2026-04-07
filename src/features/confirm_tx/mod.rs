@@ -16,7 +16,10 @@ pub fn confirm(
     tag: String,
 ) -> BoxFuture<'static, Option<Signature>> {
     async move {
-        let results = send_zero_slot_transaction(raw_instructions, tag.clone()).await;
+        let results = match CONFIRM_SERVICE.as_str() {
+            "ASTRALANE" => send_astralane_transaction(raw_instructions, tag.clone()).await,
+            _ => send_zero_slot_transaction(raw_instructions, tag.clone()).await,
+        };
 
         info!(
             "[SUBMIT]

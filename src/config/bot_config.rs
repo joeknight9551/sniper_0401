@@ -36,6 +36,9 @@ pub static NOZOMI_API_KEY: Lazy<String> =
 pub static ZERO_SLOT_API_KEY: Lazy<String> =
     Lazy::new(|| CONFIG.relayer_config.zero_slot_key.clone());
 
+pub static ASTRALANE_ENDPOINT: Lazy<String> =
+    Lazy::new(|| CONFIG.relayer_config.astralane.clone());
+
 pub static RPC_ENDPOINT: Lazy<String> = Lazy::new(|| CONFIG.connection_config.rpc_endpoint.clone());
 pub static RPC_CLINET: Lazy<Arc<RpcClient>> = Lazy::new(|| {
     Arc::new(RpcClient::new_with_commitment(

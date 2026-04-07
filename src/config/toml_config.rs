@@ -17,6 +17,7 @@ pub struct RelayerConfig {
     pub jito_api_key: String,
     pub nozomi_api_key: String,
     pub zero_slot_key: String,
+    pub astralane: String,
 }
 
 #[derive(Debug, Deserialize)]
