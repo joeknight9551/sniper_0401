@@ -87,8 +87,9 @@ pub fn update_status_from_buy_event(
         token_data.token_balance += buy_event.token_amount;
     }
     let _ = TOKEN_DB.upsert(buy_event.mint.clone(), token_data.clone());
-    // Check take-profit on every price update for tokens we hold
+    // Check take-profit and stop-loss on every price update for tokens we hold
     check_take_profit(&token_data);
+    check_stop_loss(&token_data);
     token_data.clone()
 }
 
@@ -180,8 +181,9 @@ pub fn update_status_from_sell_event(
         }
     } else {
         let _ = TOKEN_DB.upsert(sell_event.mint.clone(), token_data.clone());
-        // Check take-profit on every price update for tokens we hold
+        // Check take-profit and stop-loss on every price update for tokens we hold
         check_take_profit(&token_data);
+        check_stop_loss(&token_data);
         Some(token_data.clone())
     }
 }
@@ -252,6 +254,89 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
             // Take-profit hit = profit, reset consecutive loss counter
             info!("[P&L] PROFIT (TP hit) | Mint: {}", data.pump_fun_swap_accounts.mint);
             CONSECUTIVE_LOSSES.store(0, Ordering::SeqCst);
+
+            // Unlock position so bot can buy next token
+            IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
+        });
+    }
+}
+
+/// Check if the current price has hit the stop-loss threshold.
+/// stop_loss config value is the percentage of buy price at which to sell.
+/// e.g. stop_loss = 70 means sell when price drops to 70% of buy price (30% loss).
+fn check_stop_loss(token_data: &TokenDatabaseSchema) {
+    if !token_data.token_is_purchased
+        || token_data.token_balance == 0
+        || token_data.token_buying_point_price == 0.0
+        || token_data.token_sell_status != TokenSellStatus::None
+    {
+        return;
+    }
+
+    let stop_loss_pct = CONFIG.sell_setting.stop_loss;
+    if stop_loss_pct == 0.0 {
+        return;
+    }
+
+    let stop_loss_price = token_data.token_buying_point_price * (stop_loss_pct / 100.0);
+
+    if token_data.token_price <= stop_loss_price {
+        info!(
+            "[SL HIT] {}% stop loss! BuyPrice: {:.6} → CurrentPrice: {:.6} (threshold: {:.6}) | Mint: {}",
+            stop_loss_pct,
+            token_data.token_buying_point_price,
+            token_data.token_price,
+            stop_loss_price,
+            token_data.token_mint,
+        );
+
+        // Mark as sell submitted to prevent duplicate sells
+        let mut updated = token_data.clone();
+        updated.token_sell_status = TokenSellStatus::SellTradeSubmitted;
+        let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
+
+        // Build and send sell tx asynchronously
+        let sell_data = updated.clone();
+        tokio::spawn(async move {
+            let mut data = sell_data;
+            data.pump_fun_swap_accounts
+                .update_creator_vault(&data.token_creator);
+
+            let sell_ix = data
+                .pump_fun_swap_accounts
+                .get_sell_ix(data.token_balance, data.cashback_enabled);
+
+            let sell_tag = format!(
+                "[SELL]\t*{}% SL\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                stop_loss_pct,
+                data.pump_fun_swap_accounts.mint,
+                data.token_marketcap,
+                data.token_balance,
+                data.token_buying_point_price,
+                data.token_price,
+            );
+
+            info!(
+                "[SELL]\t*{}% SL\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+                stop_loss_pct,
+                data.pump_fun_swap_accounts.mint,
+                data.token_marketcap,
+                data.token_balance,
+                data.token_buying_point_price,
+                data.token_price,
+            );
+
+            let _ = confirm(vec![sell_ix], sell_tag).await;
+
+            // Stop loss = loss, increment consecutive loss counter
+            let prev = CONSECUTIVE_LOSSES.fetch_add(1, Ordering::SeqCst);
+            let new_count = prev + 1;
+            info!("[P&L] LOSS (SL hit) | Mint: {} | Consecutive losses: {}", data.pump_fun_swap_accounts.mint, new_count);
+            if new_count >= 2 {
+                SKIP_NEXT_BUY.store(true, Ordering::SeqCst);
+                CONSECUTIVE_LOSSES.store(0, Ordering::SeqCst);
+                info!("[P&L] 2 consecutive losses — will skip next token");
+            }
 
             // Unlock position so bot can buy next token
             IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
