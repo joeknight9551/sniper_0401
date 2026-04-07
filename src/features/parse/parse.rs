@@ -189,6 +189,9 @@ pub fn get_trade_info(
                 program: account_keys[info.accounts[11] as usize],
                 fee_config: account_keys[info.accounts[12] as usize],
                 fee_program: account_keys[info.accounts[13] as usize],
+                // 15 accounts = bonding_curve_v2_pda only (no cashback)
+                // 16 accounts = user_volume_accumulator (#15) + bonding_curve_v2_pda (#16) = cashback
+                cashback_enabled: info.accounts.len() >= 16,
             };
             sell_instruction_accounts.push(sell_accounts);
         } else if info.data.starts_with(

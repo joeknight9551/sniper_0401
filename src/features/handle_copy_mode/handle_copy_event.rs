@@ -24,7 +24,7 @@ pub async fn handle_copy_event(
         sell_events,
         mint_ixs_accounts,
         buy_ixs_accounts,
-        _sell_ixs_accounts,
+        sell_ixs_accounts,
     ) = trade_data;
 
     let return_data: DashMap<Pubkey, TokenDatabaseSchema> = DashMap::new();
@@ -72,15 +72,21 @@ pub async fn handle_copy_event(
                     updated
                         .pump_fun_swap_accounts
                         .update_creator_vault(&updated.token_creator);
+
+                    // Use cashback_enabled detected from the target's sell IX account count.
+                    // If not found in the parsed sell accounts, fall back to what was stored at mint.
+                    let cashback = sell_ixs_accounts
+                        .iter()
+                        .find(|s| s.mint == sell_event.mint)
+                        .map(|s| s.cashback_enabled)
+                        .unwrap_or(updated.cashback_enabled);
+                    updated.cashback_enabled = cashback;
+
                     let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
 
-                    // Release the position lock immediately so a concurrent buy event
-                    // (same block or next stream update) can proceed without waiting
-                    // for our sell transaction to confirm.
-
                     info!(
-                        "[CopyMode] Target {} sold {} — following sell of {} tokens, position unlocked",
-                        sell_event.user, sell_event.mint, updated.token_balance
+                        "[CopyMode] Target {} sold {} — following sell of {} tokens (cashback={})",
+                        sell_event.user, sell_event.mint, updated.token_balance, cashback
                     );
 
                     let mut sell_data = updated.clone();

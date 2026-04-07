@@ -56,6 +56,8 @@ pub struct SellInstructionAccounts {
     pub program: Pubkey,
     pub fee_config: Pubkey,
     pub fee_program: Pubkey,
+    /// True when the sell IX has 15+ accounts (user_volume_accumulator present = cashback enabled)
+    pub cashback_enabled: bool,
 }
 
 #[derive(Debug, Clone, BorshDeserialize)]
