@@ -7,6 +7,30 @@ use dashmap::DashMap;
 use solana_sdk::pubkey::Pubkey;
 use std::sync::atomic::Ordering;
 
+/// Fire a 180% take-profit sell for copy-mode positions.
+/// Called after every price update (buy/sell events) for tokens we hold.
+fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
+    if !token_data.token_is_purchased
+        || token_data.token_balance == 0
+        || token_data.token_buying_point_price == 0.0
+        || token_data.token_sell_status != TokenSellStatus::None
+        || !token_data.skip_tp_sl  // only copy-mode tokens have skip_tp_sl = true
+    {
+        return;
+    }
+
+    // 180% gain means price is 2.8× the buy price
+    if token_data.token_price >= token_data.token_buying_point_price * 2.8 {
+        info!(
+            "[CopyTP] 180% profit hit | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6}",
+            token_data.token_mint,
+            token_data.token_buying_point_price,
+            token_data.token_price,
+        );
+        copy_sell_token(token_data.token_mint, "TP180%".to_string());
+    }
+}
+
 pub async fn handle_copy_event(
     trade_data: (
         Vec<MintEvent>,
@@ -24,7 +48,7 @@ pub async fn handle_copy_event(
         sell_events,
         mint_ixs_accounts,
         buy_ixs_accounts,
-        sell_ixs_accounts,
+        _sell_ixs_accounts,
     ) = trade_data;
 
     let return_data: DashMap<Pubkey, TokenDatabaseSchema> = DashMap::new();
@@ -47,61 +71,17 @@ pub async fn handle_copy_event(
         }
     }
 
-    // ── Sell events FIRST ─────────────────────────────────────────────────────
-    // Process sells before buys so that if a target wallet sells token A and buys
-    // token B in the same transaction (or same block), the position lock is already
-    // released before we evaluate the buy.
+    // ── Sell events ───────────────────────────────────────────────────────────
+    // Process price updates from sell events and check 180% TP.
     for sell_event in sell_events.iter() {
-        let is_target_sell =
-            TARGET_WALLETS.iter().any(|w| *w == sell_event.user.to_string());
-
         if let Some(token_data) = TOKEN_DB.get(sell_event.mint).unwrap() {
-            if let Some(mut updated) = update_status_from_sell_event(
+            if let Some(updated) = update_status_from_sell_event(
                 token_data.clone(),
                 sell_event.clone(),
                 tx_id.to_string(),
                 cu_dummy,
             ) {
-                // If a target wallet sold and we hold this token, follow the sell immediately
-                if is_target_sell
-                    && updated.token_is_purchased
-                    && updated.token_balance > 0
-                    && updated.token_sell_status == TokenSellStatus::None
-                {
-                    updated.token_sell_status = TokenSellStatus::SellTradeSubmitted;
-                    updated
-                        .pump_fun_swap_accounts
-                        .update_creator_vault(&updated.token_creator);
-
-                    // Use cashback_enabled detected from the target's sell IX account count.
-                    // If not found in the parsed sell accounts, fall back to what was stored at mint.
-                    let cashback = sell_ixs_accounts
-                        .iter()
-                        .find(|s| s.mint == sell_event.mint)
-                        .map(|s| s.cashback_enabled)
-                        .unwrap_or(updated.cashback_enabled);
-                    updated.cashback_enabled = cashback;
-
-                    let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
-
-                    info!(
-                        "[CopyMode] Target {} sold {} — following sell of {} tokens (cashback={})",
-                        sell_event.user, sell_event.mint, updated.token_balance, cashback
-                    );
-
-                    let mut sell_data = updated.clone();
-                    tokio::spawn(async move {
-                        let sell_ix = sell_data.pump_fun_swap_accounts.get_sell_ix(
-                            sell_data.token_balance,
-                            sell_data.cashback_enabled,
-                        );
-                        let sell_tag = format!(
-                            "[CopySell]\t*Mint: {}\t*Amount: {}",
-                            sell_data.token_mint, sell_data.token_balance
-                        );
-                        let _ = confirm(vec![sell_ix], sell_tag).await;
-                    });
-                }
+                check_copy_take_profit(&updated);
                 return_data.insert(updated.token_mint, updated);
             }
         }
@@ -112,12 +92,15 @@ pub async fn handle_copy_event(
         let is_target = TARGET_WALLETS.iter().any(|w| *w == buy_event.user.to_string());
 
         if let Some(token_data) = TOKEN_DB.get(buy_event.mint).unwrap() {
-            let mut updated = update_status_from_buy_event(
+            let updated = update_status_from_buy_event(
                 token_data.clone(),
                 buy_event.clone(),
                 tx_id.to_string(),
                 cu_dummy,
             );
+
+            // Check 180% TP on every price update for held tokens
+            check_copy_take_profit(&updated);
 
             if is_target
                 && !updated.token_is_purchased
@@ -132,11 +115,11 @@ pub async fn handle_copy_event(
                 } else if let Some(buy_ix) =
                     buy_ixs_accounts.iter().find(|a| a.mint == buy_event.mint)
                 {
-                    // Best case: copy the exact swap accounts from the target's buy IX
-                    updated.pump_fun_swap_accounts =
+                    let mut queued = updated.clone();
+                    queued.pump_fun_swap_accounts =
                         PumpFunSwapAccounts::from_target_buy(buy_ix.clone());
-                    updated.token_buy_now = true;
-                    updated.skip_tp_sl = true;
+                    queued.token_buy_now = true;
+                    queued.skip_tp_sl = true;
                     if *ONE_TIME_COPY {
                         COPIED_MINTS.insert(buy_event.mint);
                     }
@@ -144,13 +127,14 @@ pub async fn handle_copy_event(
                         "[CopyMode] Target {} bought {} — queuing buy of {} SOL",
                         buy_event.user, buy_event.mint, *BUY_AMOUNT_SOL
                     );
-                    let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
+                    let _ = TOKEN_DB.upsert(queued.token_mint, queued.clone());
+                    return_data.insert(queued.token_mint, queued);
+                    continue;
                 } else {
-                    // Fallback: buy IX not found for this mint (e.g. unusual account layout),
-                    // use the swap accounts recorded at mint time (still valid for our wallet).
-                    updated.pump_fun_swap_accounts.update_creator_vault(&buy_event.creator);
-                    updated.token_buy_now = true;
-                    updated.skip_tp_sl = true;
+                    let mut queued = updated.clone();
+                    queued.pump_fun_swap_accounts.update_creator_vault(&buy_event.creator);
+                    queued.token_buy_now = true;
+                    queued.skip_tp_sl = true;
                     if *ONE_TIME_COPY {
                         COPIED_MINTS.insert(buy_event.mint);
                     }
@@ -158,7 +142,9 @@ pub async fn handle_copy_event(
                         "[CopyMode][Fallback] Target {} bought {} — queuing buy using mint-time accounts",
                         buy_event.user, buy_event.mint
                     );
-                    let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
+                    let _ = TOKEN_DB.upsert(queued.token_mint, queued.clone());
+                    return_data.insert(queued.token_mint, queued);
+                    continue;
                 }
             }
             return_data.insert(updated.token_mint, updated);

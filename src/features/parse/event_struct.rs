@@ -38,6 +38,8 @@ pub struct BuyInstructionAccounts {
     pub user_volume_accumulator: Pubkey,
     pub fee_config: Pubkey,
     pub fee_program: Pubkey,
+    /// Account #17 of the buy IX — read directly to avoid a `find_program_address` call.
+    pub bonding_curve_v2_pda: Pubkey,
 }
 
 #[derive(Debug, Clone)]

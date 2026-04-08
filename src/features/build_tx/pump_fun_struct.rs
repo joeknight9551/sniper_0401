@@ -86,13 +86,9 @@ impl PumpFunSwapAccounts {
             &buy_instruction_accounts.token_program,
         );
 
-        let (bonding_curve_v2_pda, _) = Pubkey::find_program_address(
-            &[
-                BONDING_CURVE_V2_PDA_SEED,
-                buy_instruction_accounts.mint.as_ref(),
-            ],
-            &PUMPFUN_PROGRAM_ID,
-        );
+        // Use the PDA read directly from the target's buy IX accounts (account #17).
+        // This avoids a `find_program_address` call (SHA256 iteration) in the hot path.
+        let bonding_curve_v2_pda = buy_instruction_accounts.bonding_curve_v2_pda;
 
         Self {
             global: buy_instruction_accounts.global,

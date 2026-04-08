@@ -10,7 +10,6 @@ macro_rules! update {
         let msg = format!($($arg)*);
         let file_msg = format!("{} {} {}{}", timestamp, $crate::UPDATE_LEVEL_STR, tab_prefix, msg);
         println!("{}", file_msg);
-        $crate::log_to_file(&file_msg);
     }};
 }
 
@@ -28,7 +27,6 @@ macro_rules! result {
         let _log_msg = format!("{} {} {}{}", timestamp.cyan(), level_display, tab_prefix, msg);
         let file_msg = format!("{} {} {}{}", timestamp, $crate::RESULT_LEVEL_RAW, tab_prefix, msg);
         println!("{}", file_msg);
-        $crate::log_to_file(&file_msg);
     }};
 }
 
@@ -46,7 +44,6 @@ macro_rules! alert {
         let _log_msg = format!("{} {} {}{}", timestamp, level_display, tab_prefix, msg);
         let file_msg = format!("{} {} {}{}", timestamp, $crate::ALERT_LEVEL_STR, tab_prefix, msg);
         println!("{}", file_msg);
-        $crate::log_to_file(&file_msg);
     }};
 }
 
@@ -63,7 +60,6 @@ macro_rules! dev_log {
             let msg = format!($($arg)*);
             let file_msg = format!("{} {} {}{}", timestamp, $crate::DEV_LEVEL_STR, tab_prefix, msg);
             println!("{}", file_msg);
-            $crate::log_to_file(&file_msg);
         }
     }};
 }

@@ -12,7 +12,6 @@ macro_rules! log {
         let file_msg = format!("{}  {}  {}{}", timestamp, $crate::LOG_VEVEL_STR, tab_prefix, msg);
 
         println!("{}", file_msg);
-        $crate::log_to_file(&file_msg);
     };
 }
 
@@ -30,7 +29,6 @@ macro_rules! info {
     let file_msg = format!("{} {} {}{}", timestamp, $crate::INFO_LEVEL_STR, tab_prefix, msg);
 
     println!("{}", file_msg);
-    $crate::log_to_file(&file_msg);
   }}
 }
 
@@ -48,7 +46,6 @@ macro_rules! success {
         let file_msg = format!("{}  {}  {}{}", timestamp, $crate::SUCCESS_LEVEL_STR, tab_prefix, msg);
 
         println!("{}", file_msg);
-        $crate::log_to_file(&file_msg);
     };
 }
 
@@ -66,7 +63,6 @@ macro_rules! warning {
     let file_msg = format!("{} {} {}{}", timestamp, WARNING_LEVEL_STR, tab_prefix, msg);
 
     println!("{}", file_msg);
-    $crate::log_to_file(&file_msg);
   }}
 }
 
@@ -84,7 +80,6 @@ macro_rules! error {
     let file_msg = format!("{} {} {}{}", timestamp, ERROR_LEVEL_STR, tab_prefix, msg);
 
     println!("{}", file_msg);
-    $crate::log_to_file(&file_msg);
   }}
 }
 
@@ -102,8 +97,6 @@ macro_rules! wallet_log {
     let file_msg = format!("{} {} {}[WalletTracker] {}", timestamp, $crate::INFO_LEVEL_STR, tab_prefix, msg);
 
     println!("{}", file_msg);
-    $crate::log_to_file(&file_msg);
-    $crate::wallet_log_to_file(&file_msg);
   }}
 }
 
@@ -121,8 +114,5 @@ macro_rules! wallet_error {
     let file_msg = format!("{} {} {}[WalletTracker] {}", timestamp, $crate::ERROR_LEVEL_STR, tab_prefix, msg);
 
     println!("{}", file_msg);
-    $crate::log_to_file(&file_msg);
-    $crate::wallet_log_to_file(&file_msg);
   }}
 }
-

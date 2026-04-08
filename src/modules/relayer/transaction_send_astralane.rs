@@ -44,7 +44,6 @@ pub async fn send_astralane_transaction(
     );
     total_instruction.push(tip_transfer_instruction);
     let mut transaction = Transaction::new_with_payer(&total_instruction, Some(&WALLET_PUB_KEY));
-    info!("Total ix build took: {:?}", start_time.elapsed());
 
     // Choose blockhash and signers based on nonce mode
     if *USE_NONCE && is_nonce_ready() {
@@ -67,8 +66,6 @@ pub async fn send_astralane_transaction(
     let serialized_transaction = bincode::serialize(&transaction).unwrap();
     let base64_encoded_transaction = base64::encode(serialized_transaction);
 
-    info!("Signing and serializing took: {:?}", start_time.elapsed());
-
     // Build the JSON-RPC request
     let request_body = json!({
         "jsonrpc": "2.0",
@@ -82,7 +79,6 @@ pub async fn send_astralane_transaction(
             }
         ]
     });
-    info!("TX making: {:?}", start_time.elapsed());
     let tx_submission_start = Instant::now();
     let response = HTTP_CLIENT
         .post(&*ASTRALANE_ENDPOINT)
@@ -93,15 +89,10 @@ pub async fn send_astralane_transaction(
         Ok(response_data) => {
             let response_json: serde_json::Value = response_data.json().await.unwrap();
             if let Some(result) = response_json.get("result") {
-                println!(
-                    "Transaction(astralane) submission took: {:?}",
-                    tx_submission_start.elapsed()
-                );
                 info!(
-                    "[SUBMIT]
-                        \t* Service: ASTRALANE
-                        \t* Hash: {:?}
-                        \t* {}",
+                    "[SUBMIT] Service: ASTRALANE | RTT: {:?} | Total: {:?} | Hash: {:?} | {}",
+                    tx_submission_start.elapsed(),
+                    start_time.elapsed(),
                     result,
                     tag.clone()
                 );

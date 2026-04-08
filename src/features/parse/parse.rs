@@ -175,6 +175,12 @@ pub fn get_trade_info(
                 user_volume_accumulator: account_keys[info.accounts[13] as usize],
                 fee_config: account_keys[info.accounts[14] as usize],
                 fee_program: account_keys[info.accounts[15] as usize],
+                // Account #17 (index 16): bonding_curve_v2_pda — read directly to skip PDA derivation.
+                bonding_curve_v2_pda: if info.accounts.len() > 16 {
+                    account_keys[info.accounts[16] as usize]
+                } else {
+                    Pubkey::default()
+                },
             };
             buy_instruction_accounts.push(buy_accounts);
         } else if info.data.starts_with(&PUMP_FUN_SELL_DISCRIMINATOR) {
