@@ -6,7 +6,7 @@ use crate::{
 use dashmap::DashMap;
 use solana_sdk::pubkey::Pubkey;
 use std::sync::atomic::Ordering;
-/// Fire a 140% take-profit partial sell (half balance) for copy-mode positions.
+/// Fire a 120% take-profit partial sell (80% of balance) for copy-mode positions.
 /// Called after every price update (buy/sell events) for tokens we hold.
 fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
     if !token_data.token_is_purchased
@@ -20,25 +20,25 @@ fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
         return;
     }
 
-    // 140% TP means sell half when price reaches 1.4× the buy price (40% profit)
+    // 120% TP means sell 80% when price reaches 1.2× the buy price (20% profit)
     if token_data.token_price >= token_data.token_buying_point_price * 1.2 {
-        let half = token_data.token_balance * 4 / 5;
-        if half == 0 {
+        let sell_amount = token_data.token_balance * 4 / 5;
+        if sell_amount == 0 {
             return;
         }
         info!(
-            "[CopyTP] 140% TP hit — selling half | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6} | Half: {}",
+            "[CopyTP] 120% TP hit — selling 80% | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6} | Amount: {}",
             token_data.token_mint,
             token_data.token_buying_point_price,
             token_data.token_price,
-            half,
+            sell_amount,
         );
         // Mark tp_partial_sold BEFORE firing the sell so we don't re-trigger
         if let Some(mut stored) = TOKEN_DB.get(token_data.token_mint).unwrap() {
             stored.tp_partial_sold = true;
             let _ = TOKEN_DB.upsert(token_data.token_mint, stored);
         }
-        copy_sell_token(token_data.token_mint, "TP140%Half".to_string(), half);
+        copy_sell_token(token_data.token_mint, "TP120%_80pct".to_string(), sell_amount);
     }
 }
 
@@ -83,10 +83,9 @@ pub async fn handle_copy_event(
     }
 
     // ── Sell events ───────────────────────────────────────────────────────────
-    // Three sell triggers checked here:
-    //   1. 180% TP on price update
-    //   2. Target wallet sold while we still hold → follow immediately
-    //   3. 4.8s timeout (handled in the spawned task in make_copy_tx)
+    // Two sell triggers checked here:
+    //   1. 120% TP on price update → sell 80% of balance
+    //   2. Target wallet sold while we still hold → sell remaining
     for sell_event in sell_events.iter() {
         let is_target_sell = TARGET_WALLETS.iter().any(|w| *w == sell_event.user.to_string());
 
