@@ -22,7 +22,7 @@ fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
 
     // 140% TP means sell half when price reaches 1.4× the buy price (40% profit)
     if token_data.token_price >= token_data.token_buying_point_price * 1.2 {
-        let half = token_data.token_balance / 2;
+        let half = token_data.token_balance * 4 / 5;
         if half == 0 {
             return;
         }
