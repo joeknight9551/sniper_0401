@@ -79,18 +79,22 @@ pub async fn handle_copy_event(
         let is_target_sell = TARGET_WALLETS.iter().any(|w| *w == sell_event.user.to_string());
 
         if let Some(mut token_data) = TOKEN_DB.get(sell_event.mint).unwrap() {
-            // Update cashback_enabled from the observed sell IX accounts before
-            // update_status_from_sell_event potentially deletes the record.
+            // Update cashback_enabled and creator_vault from the observed sell IX accounts
+            // before update_status_from_sell_event potentially deletes the record.
             if token_data.token_is_purchased && token_data.token_balance > 0 {
                 if let Some(sell_ix) = sell_ixs_accounts.iter().find(|s| s.mint == sell_event.mint) {
+                    let mut changed = false;
                     if token_data.cashback_enabled != sell_ix.cashback_enabled {
                         token_data.cashback_enabled = sell_ix.cashback_enabled;
                         token_data.cashback_known = true;
+                        changed = true;
+                    }
+                    if token_data.pump_fun_swap_accounts.creator_vault != sell_ix.creator_vault {
+                        token_data.pump_fun_swap_accounts.creator_vault = sell_ix.creator_vault;
+                        changed = true;
+                    }
+                    if changed {
                         let _ = TOKEN_DB.upsert(sell_event.mint, token_data.clone());
-                        info!(
-                            "[CopyMode] Updated cashback_enabled={} for {} from observed sell IX",
-                            sell_ix.cashback_enabled, sell_event.mint
-                        );
                     }
                 }
 
@@ -122,12 +126,22 @@ pub async fn handle_copy_event(
         let is_target = TARGET_WALLETS.iter().any(|w| *w == buy_event.user.to_string());
 
         if let Some(token_data) = TOKEN_DB.get(buy_event.mint).unwrap() {
-            let updated = update_status_from_buy_event(
+            let mut updated = update_status_from_buy_event(
                 token_data.clone(),
                 buy_event.clone(),
                 tx_id.to_string(),
                 cu_dummy,
             );
+
+            // Keep creator_vault fresh from observed buy IX accounts
+            if updated.token_is_purchased {
+                if let Some(buy_ix) = buy_ixs_accounts.iter().find(|a| a.mint == buy_event.mint) {
+                    if updated.pump_fun_swap_accounts.creator_vault != buy_ix.creator_vault {
+                        updated.pump_fun_swap_accounts.creator_vault = buy_ix.creator_vault;
+                        let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
+                    }
+                }
+            }
 
             // Check 180% TP on every price update for held tokens
             check_copy_take_profit(&updated);
@@ -161,8 +175,9 @@ pub async fn handle_copy_event(
                         COPIED_MINTS.insert(buy_event.mint);
                     }
                     info!(
-                        "[CopyMode] Target {} bought {} — queuing buy of {} SOL",
-                        buy_event.user, buy_event.mint, *BUY_AMOUNT_SOL
+                        "[CopyMode] Target {} bought {} — queuing buy of {} SOL | creator_vault: {}",
+                        buy_event.user, buy_event.mint, *BUY_AMOUNT_SOL,
+                        queued.pump_fun_swap_accounts.creator_vault
                     );
                     let _ = TOKEN_DB.upsert(queued.token_mint, queued.clone());
                     return_data.insert(queued.token_mint, queued);
@@ -234,8 +249,9 @@ pub async fn handle_copy_event(
                         COPIED_MINTS.insert(buy_event.mint);
                     }
                     info!(
-                        "[CopyMode][NewToken] Target {} bought {} — queuing buy of {} SOL",
-                        buy_event.user, buy_event.mint, *BUY_AMOUNT_SOL
+                        "[CopyMode][NewToken] Target {} bought {} — queuing buy of {} SOL | creator_vault: {}",
+                        buy_event.user, buy_event.mint, *BUY_AMOUNT_SOL,
+                        new_token.pump_fun_swap_accounts.creator_vault
                     );
                     return_data.insert(buy_event.mint, new_token);
                 }

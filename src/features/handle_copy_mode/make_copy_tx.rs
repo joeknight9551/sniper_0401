@@ -20,14 +20,17 @@ pub fn copy_sell_token(mint: Pubkey, reason: String) {
 
     let mut sell_data = token_data.clone();
     sell_data.token_sell_status = TokenSellStatus::SellTradeSubmitted;
-    // Do NOT call update_creator_vault here — the creator_vault stored in
-    // pump_fun_swap_accounts was copied directly from the target's buy IX
-    // (the ground truth) and must not be overwritten.
+    // Always use the latest creator_vault from observed buy/sell IXs
+    if let Some(cv) = CREATOR_VAULT_CACHE.get(&mint) {
+        sell_data.pump_fun_swap_accounts.creator_vault = *cv;
+    }
     let _ = TOKEN_DB.upsert(mint, sell_data.clone());
 
     info!(
-        "[CopySell]\t*{}\t*Mint: {}\t*Balance: {}",
-        reason, sell_data.token_mint, sell_data.token_balance
+        "[CopySell]\t*{}\t*Mint: {}\t*Balance: {}\t*creator_vault: {}\t*cashback: {} (known={})",
+        reason, sell_data.token_mint, sell_data.token_balance,
+        sell_data.pump_fun_swap_accounts.creator_vault,
+        sell_data.cashback_enabled, sell_data.cashback_known
     );
 
     tokio::spawn(async move {
