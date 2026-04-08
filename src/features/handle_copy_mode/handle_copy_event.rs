@@ -6,7 +6,7 @@ use crate::{
 use dashmap::DashMap;
 use solana_sdk::pubkey::Pubkey;
 use std::sync::atomic::Ordering;
-/// Fire a 180% take-profit sell for copy-mode positions.
+/// Fire a 140% take-profit partial sell (half balance) for copy-mode positions.
 /// Called after every price update (buy/sell events) for tokens we hold.
 fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
     if !token_data.token_is_purchased
@@ -15,19 +15,30 @@ fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
         || token_data.token_sell_status != TokenSellStatus::None
         || !token_data.skip_tp_sl  // only copy-mode tokens have skip_tp_sl = true
         || token_data.mirror_only  // mirror-only tokens sell only when target sells
+        || token_data.tp_partial_sold  // already sold half at 140%
     {
         return;
     }
 
-    // 180% TP means sell when price reaches 1.8× the buy price (80% profit)
-    if token_data.token_price >= token_data.token_buying_point_price * 1.8 {
+    // 140% TP means sell half when price reaches 1.4× the buy price (40% profit)
+    if token_data.token_price >= token_data.token_buying_point_price * 1.4 {
+        let half = token_data.token_balance / 2;
+        if half == 0 {
+            return;
+        }
         info!(
-            "[CopyTP] 180% TP hit | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6}",
+            "[CopyTP] 140% TP hit — selling half | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6} | Half: {}",
             token_data.token_mint,
             token_data.token_buying_point_price,
             token_data.token_price,
+            half,
         );
-        copy_sell_token(token_data.token_mint, "TP180%".to_string());
+        // Mark tp_partial_sold BEFORE firing the sell so we don't re-trigger
+        if let Some(mut stored) = TOKEN_DB.get(token_data.token_mint).unwrap() {
+            stored.tp_partial_sold = true;
+            let _ = TOKEN_DB.upsert(token_data.token_mint, stored);
+        }
+        copy_sell_token(token_data.token_mint, "TP140%Half".to_string(), half);
     }
 }
 
@@ -100,13 +111,13 @@ pub async fn handle_copy_event(
                 }
 
                 // If a target wallet sells while we still hold, follow immediately.
-                // copy_sell_token is a no-op if the 4.8s timeout already fired.
+                // Sell full balance if no partial TP happened, or remaining half if it did.
                 if is_target_sell {
                     info!(
-                        "[CopyMode] Target {} sold {} — following sell",
-                        sell_event.user, sell_event.mint
+                        "[CopyMode] Target {} sold {} — following sell (tp_partial_sold={})",
+                        sell_event.user, sell_event.mint, token_data.tp_partial_sold
                     );
-                    copy_sell_token(sell_event.mint, "TargetSell".to_string());
+                    copy_sell_token(sell_event.mint, "TargetSell".to_string(), 0);
                 }
             }
 
@@ -247,6 +258,7 @@ pub async fn handle_copy_event(
                         token_holding_time_secs: 0,
                         skip_tp_sl: true,
                         mirror_only: MIRROR_WALLETS.iter().any(|w| *w == buy_event.user.to_string()),
+                        tp_partial_sold: false,
                     };
                     let _ = TOKEN_DB.upsert(buy_event.mint, new_token.clone());
                     if *ONE_TIME_COPY {

@@ -34,6 +34,8 @@ pub struct TokenDatabaseSchema {
     /// Pure mirror mode: only sell when the same target wallet sells.
     /// No 4.8s timeout, no 180% TP.
     pub mirror_only: bool,
+    /// True after the 140% TP partial sell (half balance) has been executed.
+    pub tp_partial_sold: bool,
 }
 
 impl TokenDatabaseSchema {
@@ -81,6 +83,7 @@ impl TokenDatabaseSchema {
             skip_tp_sl: false,
             cashback_known: true,
             mirror_only: false,
+            tp_partial_sold: false,
         };
         let _ = TOKEN_DB.upsert(mint_event.mint.clone(), token_data.clone());
 

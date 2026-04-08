@@ -2,10 +2,10 @@ use crate::*;
 use dashmap::DashMap;
 use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
 
-/// Sell the full balance of `mint`.
-/// Used by both the 4.8s timeout path and 180% TP path.
+/// Sell `sell_amount` tokens of `mint`.
+/// When `sell_amount` is 0, sells the full balance.
 /// No-op if the position is already closed or a sell is already in flight.
-pub fn copy_sell_token(mint: Pubkey, reason: String) {
+pub fn copy_sell_token(mint: Pubkey, reason: String, sell_amount: u64) {
     let token_data = match TOKEN_DB.get(mint).unwrap() {
         Some(data) => data,
         None => return,
@@ -18,6 +18,8 @@ pub fn copy_sell_token(mint: Pubkey, reason: String) {
         return;
     }
 
+    let amount = if sell_amount == 0 { token_data.token_balance } else { sell_amount.min(token_data.token_balance) };
+
     let mut sell_data = token_data.clone();
     sell_data.token_sell_status = TokenSellStatus::SellTradeSubmitted;
     // Always use the latest creator_vault from observed buy/sell IXs
@@ -27,41 +29,33 @@ pub fn copy_sell_token(mint: Pubkey, reason: String) {
     let _ = TOKEN_DB.upsert(mint, sell_data.clone());
 
     info!(
-        "[CopySell]\t*{}\t*Mint: {}\t*Balance: {}\t*creator_vault: {}\t*cashback: {} (known={})",
-        reason, sell_data.token_mint, sell_data.token_balance,
+        "[CopySell]\t*{}\t*Mint: {}\t*SellAmount: {}\t*Balance: {}\t*creator_vault: {}\t*cashback: {} (known={})",
+        reason, sell_data.token_mint, amount, sell_data.token_balance,
         sell_data.pump_fun_swap_accounts.creator_vault,
         sell_data.cashback_enabled, sell_data.cashback_known
     );
 
     tokio::spawn(async move {
-        // When cashback_enabled is not definitively known (token created from buy IX without
-        // a mint event), send both the cashback and non-cashback sell IXs simultaneously.
-        // The pump.fun program accepts whichever layout matches the token's on-chain config
-        // and rejects the other with error 6024 — the correct one always lands.
         let sell_ix_primary = sell_data
             .pump_fun_swap_accounts
-            .get_sell_ix(sell_data.token_balance, sell_data.cashback_enabled);
+            .get_sell_ix(amount, sell_data.cashback_enabled);
         let sell_tag_primary = format!(
             "[CopySell]\t*{}\t*Mint: {}\t*Amount: {}\t*cashback={}",
-            reason, sell_data.token_mint, sell_data.token_balance, sell_data.cashback_enabled
+            reason, sell_data.token_mint, amount, sell_data.cashback_enabled
         );
 
         if !sell_data.cashback_known {
-            // Also fire the opposite layout simultaneously.
-            // Use confirm_no_nonce so this TX uses a recent blockhash
-            // instead of racing the primary TX for the same nonce.
             let opposite = !sell_data.cashback_enabled;
             let sell_ix_alt = sell_data
                 .pump_fun_swap_accounts
-                .get_sell_ix(sell_data.token_balance, opposite);
+                .get_sell_ix(amount, opposite);
             let sell_tag_alt = format!(
                 "[CopySell]\t*{}\t*Mint: {}\t*Amount: {}\t*cashback={} (alt)",
-                reason, sell_data.token_mint, sell_data.token_balance, opposite
+                reason, sell_data.token_mint, amount, opposite
             );
             let alt_data = sell_data.clone();
             tokio::spawn(async move {
                 let _ = confirm_no_nonce(vec![sell_ix_alt], sell_tag_alt).await;
-                // If the alt TX succeeds, mark the cashback setting in DB so future sells are correct.
                 if let Some(mut stored) = TOKEN_DB.get(alt_data.token_mint).unwrap() {
                     stored.cashback_enabled = opposite;
                     stored.cashback_known = true;
@@ -109,33 +103,6 @@ pub async fn make_copy_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabaseSc
             tokio::spawn(async move {
                 let _ = confirm(ix_clone, tag_clone).await;
             });
-
-            // For mirror_only tokens, sell only when the target sells (no timeout).
-            // For original-logic tokens, spawn 4.8s timeout sell.
-            if !token_data.mirror_only {
-                let mint = token_data.token_mint;
-                tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(4800)).await;
-
-                    // Wait up to 2s for token_balance to be populated from our buy event.
-                    let mut poll = 0u8;
-                    loop {
-                        match TOKEN_DB.get(mint).unwrap() {
-                            None => return,
-                            Some(d) if d.token_balance > 0 => break,
-                            _ => {}
-                        }
-                        poll += 1;
-                        if poll >= 20 {
-                            info!("[CopySell][Timeout] balance still 0 after 2s extra wait, skipping {}", mint);
-                            return;
-                        }
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    }
-
-                    copy_sell_token(mint, "Timeout4.8s".to_string());
-                });
-            }
 
             info!("{}", tag);
         }
