@@ -6,7 +6,6 @@ use crate::{
 use dashmap::DashMap;
 use solana_sdk::pubkey::Pubkey;
 use std::sync::atomic::Ordering;
-
 /// Fire a 180% take-profit sell for copy-mode positions.
 /// Called after every price update (buy/sell events) for tokens we hold.
 fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
@@ -48,7 +47,7 @@ pub async fn handle_copy_event(
         sell_events,
         mint_ixs_accounts,
         buy_ixs_accounts,
-        _sell_ixs_accounts,
+        sell_ixs_accounts,
     ) = trade_data;
 
     let return_data: DashMap<Pubkey, TokenDatabaseSchema> = DashMap::new();
@@ -73,8 +72,25 @@ pub async fn handle_copy_event(
 
     // ── Sell events ───────────────────────────────────────────────────────────
     // Process price updates from sell events and check 180% TP.
+    // Also update cashback_enabled from the sell IX account count for tokens
+    // we hold — this corrects the default (false) used when the mint was missed.
     for sell_event in sell_events.iter() {
-        if let Some(token_data) = TOKEN_DB.get(sell_event.mint).unwrap() {
+        if let Some(mut token_data) = TOKEN_DB.get(sell_event.mint).unwrap() {
+            // Update cashback_enabled from the observed sell IX accounts before
+            // update_status_from_sell_event potentially deletes the record.
+            if token_data.token_is_purchased && token_data.token_balance > 0 {
+                if let Some(sell_ix) = sell_ixs_accounts.iter().find(|s| s.mint == sell_event.mint) {
+                    if token_data.cashback_enabled != sell_ix.cashback_enabled {
+                        token_data.cashback_enabled = sell_ix.cashback_enabled;
+                        let _ = TOKEN_DB.upsert(sell_event.mint, token_data.clone());
+                        info!(
+                            "[CopyMode] Updated cashback_enabled={} for {} from observed sell IX",
+                            sell_ix.cashback_enabled, sell_event.mint
+                        );
+                    }
+                }
+            }
+
             if let Some(updated) = update_status_from_sell_event(
                 token_data.clone(),
                 sell_event.clone(),

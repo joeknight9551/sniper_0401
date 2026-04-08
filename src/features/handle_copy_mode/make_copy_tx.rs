@@ -78,11 +78,30 @@ pub async fn make_copy_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabaseSc
                 let _ = confirm(ix_clone, tag_clone).await;
             });
 
-            // Spawn 4.8s timeout sell — exits the position after 4.8 seconds
-            // regardless of price, unless already sold by the TP path.
+            // Spawn 4.8s timeout sell — exits the position after 4.8 seconds.
+            // After sleeping, poll up to 2s for our buy event to be processed
+            // (gRPC may deliver it a little after the TX lands on-chain).
             let mint = token_data.token_mint;
             tokio::spawn(async move {
                 tokio::time::sleep(tokio::time::Duration::from_millis(4800)).await;
+
+                // Wait up to 2s for token_balance to be populated from our buy event.
+                let mut poll = 0u8;
+                loop {
+                    match TOKEN_DB.get(mint).unwrap() {
+                        None => return,                          // token already removed (sold)
+                        Some(d) if d.token_balance > 0 => break, // balance ready
+                        _ => {}
+                    }
+                    poll += 1;
+                    if poll >= 20 {
+                        // Buy likely failed on-chain; nothing to sell.
+                        info!("[CopySell][Timeout] balance still 0 after 2s extra wait, skipping {}", mint);
+                        return;
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                }
+
                 copy_sell_token(mint, "Timeout4.8s".to_string());
             });
 
