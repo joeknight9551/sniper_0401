@@ -18,10 +18,10 @@ fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
         return;
     }
 
-    // 180% gain means price is 2.8× the buy price
-    if token_data.token_price >= token_data.token_buying_point_price * 2.8 {
+    // 180% TP means sell when price reaches 1.8× the buy price (80% profit)
+    if token_data.token_price >= token_data.token_buying_point_price * 1.8 {
         info!(
-            "[CopyTP] 180% profit hit | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6}",
+            "[CopyTP] 180% TP hit | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6}",
             token_data.token_mint,
             token_data.token_buying_point_price,
             token_data.token_price,
@@ -71,10 +71,13 @@ pub async fn handle_copy_event(
     }
 
     // ── Sell events ───────────────────────────────────────────────────────────
-    // Process price updates from sell events and check 180% TP.
-    // Also update cashback_enabled from the sell IX account count for tokens
-    // we hold — this corrects the default (false) used when the mint was missed.
+    // Three sell triggers checked here:
+    //   1. 180% TP on price update
+    //   2. Target wallet sold while we still hold → follow immediately
+    //   3. 4.8s timeout (handled in the spawned task in make_copy_tx)
     for sell_event in sell_events.iter() {
+        let is_target_sell = TARGET_WALLETS.iter().any(|w| *w == sell_event.user.to_string());
+
         if let Some(mut token_data) = TOKEN_DB.get(sell_event.mint).unwrap() {
             // Update cashback_enabled from the observed sell IX accounts before
             // update_status_from_sell_event potentially deletes the record.
@@ -82,12 +85,23 @@ pub async fn handle_copy_event(
                 if let Some(sell_ix) = sell_ixs_accounts.iter().find(|s| s.mint == sell_event.mint) {
                     if token_data.cashback_enabled != sell_ix.cashback_enabled {
                         token_data.cashback_enabled = sell_ix.cashback_enabled;
+                        token_data.cashback_known = true;
                         let _ = TOKEN_DB.upsert(sell_event.mint, token_data.clone());
                         info!(
                             "[CopyMode] Updated cashback_enabled={} for {} from observed sell IX",
                             sell_ix.cashback_enabled, sell_event.mint
                         );
                     }
+                }
+
+                // If a target wallet sells while we still hold, follow immediately.
+                // copy_sell_token is a no-op if the 4.8s timeout already fired.
+                if is_target_sell {
+                    info!(
+                        "[CopyMode] Target {} sold {} — following sell",
+                        sell_event.user, sell_event.mint
+                    );
+                    copy_sell_token(sell_event.mint, "TargetSell".to_string());
                 }
             }
 
