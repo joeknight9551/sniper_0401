@@ -90,6 +90,12 @@ pub fn update_status_from_buy_event(
             / (buy_event.token_amount as f64 / 10f64.powi(6));
         token_data.token_balance += buy_event.token_amount;
     }
+    // Preserve sell-related fields from the latest DB state to avoid
+    // overwriting concurrent modifications (e.g. async TP sell status reset).
+    if let Some(current) = TOKEN_DB.get(buy_event.mint).unwrap() {
+        token_data.token_sell_status = current.token_sell_status;
+        token_data.tp_sell_level = current.tp_sell_level;
+    }
     let _ = TOKEN_DB.upsert(buy_event.mint.clone(), token_data.clone());
     // Check take-profit and stop-loss on every price update for tokens we hold
     check_take_profit(&token_data);
@@ -181,6 +187,11 @@ pub fn update_status_from_sell_event(
         token_data.token_balance -= sell_event.token_amount;
 
         if token_data.token_balance > 0 {
+            // Preserve sell-related fields from the latest DB state.
+            if let Some(current) = TOKEN_DB.get(sell_event.mint).unwrap() {
+                token_data.token_sell_status = current.token_sell_status;
+                token_data.tp_sell_level = current.tp_sell_level;
+            }
             let _ = TOKEN_DB.upsert(sell_event.mint.clone(), token_data.clone());
             Some(token_data.clone())
         } else {
@@ -188,6 +199,11 @@ pub fn update_status_from_sell_event(
             None
         }
     } else {
+        // Preserve sell-related fields from the latest DB state.
+        if let Some(current) = TOKEN_DB.get(sell_event.mint).unwrap() {
+            token_data.token_sell_status = current.token_sell_status;
+            token_data.tp_sell_level = current.tp_sell_level;
+        }
         let _ = TOKEN_DB.upsert(sell_event.mint.clone(), token_data.clone());
         // Check take-profit and stop-loss on every price update for tokens we hold
         check_take_profit(&token_data);

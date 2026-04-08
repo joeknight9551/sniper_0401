@@ -143,6 +143,11 @@ pub async fn handle_copy_event(
                         sell_event.user, sell_event.mint, token_data.tp_sell_level
                     );
                     copy_sell_token(sell_event.mint, "TargetSell".to_string(), 0);
+                    // Re-read from DB so update_status_from_sell_event doesn't
+                    // overwrite the SellTradeSubmitted status with a stale clone.
+                    if let Some(fresh) = TOKEN_DB.get(sell_event.mint).unwrap() {
+                        token_data = fresh;
+                    }
                 }
             }
 
@@ -152,7 +157,10 @@ pub async fn handle_copy_event(
                 tx_id.to_string(),
                 cu_dummy,
             ) {
-                check_copy_take_profit(&updated);
+                // Only check TP if we didn't just fire a target-sell for this token.
+                if !is_target_sell {
+                    check_copy_take_profit(&updated);
+                }
                 return_data.insert(updated.token_mint, updated);
             }
         }
