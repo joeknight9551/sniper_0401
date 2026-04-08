@@ -1,10 +1,13 @@
+use borsh::BorshDeserialize;
 use crate::*;
 use futures::StreamExt;
+use solana_sdk::pubkey::Pubkey;
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use yellowstone_grpc_proto::{geyser::SubscribeUpdate, tonic::Status};
 
-/// Cache creator_vault from observed buy/sell IX accounts.
-/// creator_vault can change between transactions, so always keep the latest.
+/// Cache creator_vault + cashback from observed buy/sell/mint IX accounts.
+/// Called for target/own-wallet TXs after full parsing.
 #[inline]
 fn cache_from_trade_data(trade_data: &(
     Vec<MintEvent>,
@@ -25,10 +28,51 @@ fn cache_from_trade_data(trade_data: &(
     }
 }
 
+/// Lightweight cache pass for non-relevant TXs.
+/// Extracts only mint→cashback and mint→creator_vault from raw IX data
+/// WITHOUT Borsh-deserializing TradeEvents (the expensive part).
+#[inline]
+fn cache_lightweight(ix_infos: &[InstructionRawData], account_keys: &[Pubkey]) {
+    let mint_event_prefix: Vec<u8> = [
+        &PUMP_FUN_EVENT_LOG_DISCRIMINATOR[..],
+        &PUMP_FUN_MINT_EVENT_DISCRIMINATOR[..],
+    ].concat();
+
+    for info in ix_infos {
+        if info.data.starts_with(&mint_event_prefix) && info.data.len() > 16 {
+            // Borsh-deserialize only MintEvent (rare — most TXs are trades, not mints)
+            if let Ok(mint_event) = MintEvent::deserialize(&mut &info.data[16..]) {
+                CASHBACK_CACHE.insert(mint_event.mint, mint_event.cashback_enabled);
+            }
+        } else if (info.data.starts_with(&PUMP_FUN_BUY_DISCRIMINATOR)
+            || info.data.starts_with(&PUMP_FUN_BUY_EXACT_SOL_IN_DISCRIMINATOR))
+            && info.accounts.len() >= 10
+        {
+            let mint = account_keys[info.accounts[2] as usize];
+            let creator_vault = account_keys[info.accounts[9] as usize];
+            CREATOR_VAULT_CACHE.insert(mint, creator_vault);
+        } else if info.data.starts_with(&PUMP_FUN_SELL_DISCRIMINATOR)
+            && info.accounts.len() >= 9
+        {
+            let mint = account_keys[info.accounts[2] as usize];
+            let creator_vault = account_keys[info.accounts[8] as usize];
+            CREATOR_VAULT_CACHE.insert(mint, creator_vault);
+        }
+    }
+}
+
 pub async fn process_copy_mode<S>(mut stream: S) -> Result<(), Box<dyn std::error::Error>>
 where
     S: StreamExt<Item = Result<SubscribeUpdate, Status>> + Unpin,
 {
+    // Pre-parse target wallet pubkeys once for fast byte-level comparison
+    // instead of base58-encoding every signer on every TX.
+    let mut watched_pubkeys: HashSet<Pubkey> = TARGET_WALLETS
+        .iter()
+        .filter_map(|w| w.parse::<Pubkey>().ok())
+        .collect();
+    watched_pubkeys.insert(*WALLET_PUB_KEY);
+
     while let Some(result) = stream.next().await {
         match result {
             Ok(update) => {
@@ -43,28 +87,25 @@ where
                         continue;
                     };
 
+                // Check relevance FIRST — before any expensive parsing.
+                // Compare raw Pubkey bytes (32-byte memcmp) instead of base58 strings.
+                let involves_us = signers.iter().any(|s| watched_pubkeys.contains(s));
+
                 let ix_info =
                     match filter_by_program_id(ixs, inner_ixs, account_keys.clone(), PUMPFUN_PROGRAM_ID) {
                         Ok(info) => info,
                         Err(_) => continue,
                     };
 
-                let trade_data = get_trade_info(ix_info, account_keys);
-
-                // Cache cashback + creator_vault from every PumpFun TX
-                cache_from_trade_data(&trade_data);
-
-                // Fast-path: for transactions NOT involving target wallets or our
-                // own wallet, skip the rest. This avoids spawning tasks for the
-                // huge volume of unrelated PumpFun transactions.
-                let involves_us = signers.iter().any(|s| {
-                    let s_str = s.to_string();
-                    *s == *WALLET_PUB_KEY || TARGET_WALLETS.iter().any(|w| *w == s_str)
-                });
-
                 if !involves_us {
+                    // Lightweight cache: no Borsh deserialize of TradeEvents
+                    cache_lightweight(&ix_info, &account_keys);
                     continue;
                 }
+
+                // Full parse only for target/own-wallet TXs
+                let trade_data = get_trade_info(ix_info, account_keys);
+                cache_from_trade_data(&trade_data);
 
                 // Spawn processing so the stream loop is never blocked waiting
                 // for DB lookups, TX building or network I/O.
