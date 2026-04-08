@@ -28,6 +28,9 @@ pub struct TokenDatabaseSchema {
     /// When true, skip take-profit and stop-loss checks for this token.
     /// Set by copy mode — exit is driven by the target wallet selling, not price thresholds.
     pub skip_tp_sl: bool,
+    /// False when the token record was created from a buy IX without a mint event.
+    /// In that case cashback_enabled is a best-guess and we must try both sell layouts.
+    pub cashback_known: bool,
 }
 
 impl TokenDatabaseSchema {
@@ -73,6 +76,7 @@ impl TokenDatabaseSchema {
             token_take_profit_pct: 0.0,
             token_holding_time_secs: 0,
             skip_tp_sl: false,
+            cashback_known: true,
         };
         let _ = TOKEN_DB.upsert(mint_event.mint.clone(), token_data.clone());
 

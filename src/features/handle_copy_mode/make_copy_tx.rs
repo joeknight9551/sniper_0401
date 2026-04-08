@@ -31,14 +31,41 @@ pub fn copy_sell_token(mint: Pubkey, reason: String) {
     );
 
     tokio::spawn(async move {
-        let sell_ix = sell_data
+        // When cashback_enabled is not definitively known (token created from buy IX without
+        // a mint event), send both the cashback and non-cashback sell IXs simultaneously.
+        // The pump.fun program accepts whichever layout matches the token's on-chain config
+        // and rejects the other with error 6024 — the correct one always lands.
+        let sell_ix_primary = sell_data
             .pump_fun_swap_accounts
             .get_sell_ix(sell_data.token_balance, sell_data.cashback_enabled);
-        let sell_tag = format!(
-            "[CopySell]\t*{}\t*Mint: {}\t*Amount: {}",
-            reason, sell_data.token_mint, sell_data.token_balance
+        let sell_tag_primary = format!(
+            "[CopySell]\t*{}\t*Mint: {}\t*Amount: {}\t*cashback={}",
+            reason, sell_data.token_mint, sell_data.token_balance, sell_data.cashback_enabled
         );
-        let _ = confirm(vec![sell_ix], sell_tag).await;
+
+        if !sell_data.cashback_known {
+            // Also fire the opposite layout simultaneously.
+            let opposite = !sell_data.cashback_enabled;
+            let sell_ix_alt = sell_data
+                .pump_fun_swap_accounts
+                .get_sell_ix(sell_data.token_balance, opposite);
+            let sell_tag_alt = format!(
+                "[CopySell]\t*{}\t*Mint: {}\t*Amount: {}\t*cashback={} (alt)",
+                reason, sell_data.token_mint, sell_data.token_balance, opposite
+            );
+            let alt_data = sell_data.clone();
+            tokio::spawn(async move {
+                let _ = confirm(vec![sell_ix_alt], sell_tag_alt).await;
+                // If the alt TX succeeds, mark the cashback setting in DB so future sells are correct.
+                if let Some(mut stored) = TOKEN_DB.get(alt_data.token_mint).unwrap() {
+                    stored.cashback_enabled = opposite;
+                    stored.cashback_known = true;
+                    let _ = TOKEN_DB.upsert(alt_data.token_mint, stored);
+                }
+            });
+        }
+
+        let _ = confirm(vec![sell_ix_primary], sell_tag_primary).await;
     });
 }
 

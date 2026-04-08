@@ -180,7 +180,8 @@ pub async fn handle_copy_event(
                         token_mint: buy_event.mint,
                         token_name: String::new(),
                         token_symbol: String::new(),
-                        cashback_enabled: false,
+                        cashback_enabled: true,  // assume cashback until proven otherwise
+                        cashback_known: false,   // unknown — will try both sell layouts
                         token_creator: buy_event.creator,
                         token_total_supply: PUMP_FUN_TOKEN_TOTAL_SUPPLY,
                         token_price: price,
