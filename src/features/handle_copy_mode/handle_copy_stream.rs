@@ -98,9 +98,27 @@ where
                     };
 
                 if !involves_us {
-                    // Lightweight cache: no Borsh deserialize of TradeEvents
-                    cache_lightweight(&ix_info, &account_keys);
-                    continue;
+                    // Check if any mint in this TX matches a token we currently hold.
+                    // If so, we need the full parse to update the price and check TP.
+                    let mut touches_held_token = false;
+                    for info in &ix_info {
+                        // For buy/sell IXs the mint is at account index 2
+                        if info.accounts.len() > 2 {
+                            let mint = account_keys[info.accounts[2] as usize];
+                            if let Some(td) = TOKEN_DB.get(mint).unwrap() {
+                                if td.token_is_purchased && td.token_balance > 0 {
+                                    touches_held_token = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if !touches_held_token {
+                        // Lightweight cache: no Borsh deserialize of TradeEvents
+                        cache_lightweight(&ix_info, &account_keys);
+                        continue;
+                    }
                 }
 
                 // Full parse only for target/own-wallet TXs
