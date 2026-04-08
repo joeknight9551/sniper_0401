@@ -14,7 +14,7 @@ where
                     break;
                 }
 
-                let (account_keys, ixs, inner_ixs, tx_id, _signers) =
+                let (account_keys, ixs, inner_ixs, tx_id, signers) =
                     if let Some(data) = extract_transaction_data(&update) {
                         data
                     } else {
@@ -28,6 +28,28 @@ where
                     };
 
                 let trade_data = get_trade_info(ix_info, account_keys);
+
+                // Fast-path: for transactions NOT involving target wallets or our
+                // own wallet, only store cashback_enabled from mint events and skip
+                // the rest. This avoids spawning tasks for the huge volume of
+                // unrelated PumpFun transactions.
+                let involves_us = signers.iter().any(|s| {
+                    let s_str = s.to_string();
+                    *s == *WALLET_PUB_KEY || TARGET_WALLETS.iter().any(|w| *w == s_str)
+                });
+
+                if !involves_us {
+                    // Only harvest mint events for cashback info
+                    for mint_event in &trade_data.0 {
+                        CASHBACK_CACHE.insert(mint_event.mint, mint_event.cashback_enabled);
+                    }
+                    continue;
+                }
+
+                // Also store cashback for any mint events in target/own-wallet TXs
+                for mint_event in &trade_data.0 {
+                    CASHBACK_CACHE.insert(mint_event.mint, mint_event.cashback_enabled);
+                }
 
                 // Spawn processing so the stream loop is never blocked waiting
                 // for DB lookups, TX building or network I/O.

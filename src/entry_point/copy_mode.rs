@@ -30,14 +30,10 @@ pub async fn main() {
         .unwrap();
     let (subscribe_tx, subscribe_rx) = grpc_client.subscribe().await.unwrap();
 
-    // Include target wallets AND our own wallet so our buy confirmations arrive
-    // (needed to update token_balance, which gates the copy-sell logic).
-    // account_required ensures only PumpFun transactions are delivered.
-    let mut watched_accounts: Vec<String> = TARGET_WALLETS.iter().cloned().collect();
-    watched_accounts.push(WALLET_PUB_KEY.to_string());
-
+    // Subscribe to ALL PumpFun transactions so we receive mint events
+    // (which carry cashback_enabled). Target wallet filtering is done in code.
     let subscribe_filter = SubscribeRequestFilterTransactions {
-        account_include: watched_accounts,
+        account_include: vec![],
         account_exclude: vec![],
         account_required: vec![PUMPFUN_PROGRAM_ID.to_string()],
         vote: Some(false),

@@ -150,6 +150,13 @@ pub async fn handle_copy_event(
                         PumpFunSwapAccounts::from_target_buy(buy_ix.clone());
                     queued.token_buy_now = true;
                     queued.skip_tp_sl = true;
+                    // Fill cashback from cache if still unknown
+                    if !queued.cashback_known {
+                        if let Some(val) = CASHBACK_CACHE.get(&buy_event.mint) {
+                            queued.cashback_enabled = *val;
+                            queued.cashback_known = true;
+                        }
+                    }
                     if *ONE_TIME_COPY {
                         COPIED_MINTS.insert(buy_event.mint);
                     }
@@ -190,12 +197,17 @@ pub async fn handle_copy_event(
                     let price = (buy_event.virtual_sol_reserves as f64 / 1e9)
                         / (buy_event.virtual_token_reserves as f64 / 1e6);
                     let swap_accounts = PumpFunSwapAccounts::from_target_buy(buy_ix.clone());
+                    // Look up cashback from mint event cache
+                    let (cb_enabled, cb_known) = match CASHBACK_CACHE.get(&buy_event.mint) {
+                        Some(val) => (*val, true),
+                        None => (false, false), // fallback: unknown → dual-send
+                    };
                     let new_token = TokenDatabaseSchema {
                         token_mint: buy_event.mint,
                         token_name: String::new(),
                         token_symbol: String::new(),
-                        cashback_enabled: true,  // assume cashback until proven otherwise
-                        cashback_known: false,   // unknown — will try both sell layouts
+                        cashback_enabled: cb_enabled,
+                        cashback_known: cb_known,
                         token_creator: buy_event.creator,
                         token_total_supply: PUMP_FUN_TOKEN_TOTAL_SUPPLY,
                         token_price: price,

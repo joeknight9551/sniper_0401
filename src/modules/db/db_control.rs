@@ -10,6 +10,9 @@ pub static TOKEN_DB: Lazy<TokenDatabase> = Lazy::new(|| TokenDatabase {
     map: Arc::new(DashMap::new()),
 });
 
+/// Lightweight cache: mint → cashback_enabled, populated from mint events.
+pub static CASHBACK_CACHE: Lazy<DashMap<Pubkey, bool>> = Lazy::new(DashMap::new);
+
 #[derive(Clone, Debug)]
 pub struct TokenDatabase {
     pub map: Arc<DashMap<Pubkey, TokenDatabaseSchema>>,
