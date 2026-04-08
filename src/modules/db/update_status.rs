@@ -22,11 +22,15 @@ pub fn update_status_from_buy_event(
         None
     };
 
-    // Update creator vault PDA from the event's creator (creator may have changed since mint)
-    token_data.token_creator = buy_event.creator;
-    token_data
-        .pump_fun_swap_accounts
-        .update_creator_vault(&buy_event.creator);
+    // For copy-mode tokens (skip_tp_sl=true) the creator_vault was copied directly
+    // from the target's buy IX and is the ground truth — never overwrite it from
+    // event data, which may carry a stale/different creator.
+    if !token_data.skip_tp_sl {
+        token_data.token_creator = buy_event.creator;
+        token_data
+            .pump_fun_swap_accounts
+            .update_creator_vault(&buy_event.creator);
+    }
 
     token_data.last_event = LastEvent {
         tx_hash: tx_id.clone(),
@@ -111,11 +115,15 @@ pub fn update_status_from_sell_event(
         None
     };
 
-    // Update creator vault PDA from the event's creator (creator may have changed since mint)
-    token_data.token_creator = sell_event.creator;
-    token_data
-        .pump_fun_swap_accounts
-        .update_creator_vault(&sell_event.creator);
+    // For copy-mode tokens (skip_tp_sl=true) the creator_vault was copied directly
+    // from the target's buy IX and is the ground truth — never overwrite it from
+    // event data, which may carry a stale/different creator.
+    if !token_data.skip_tp_sl {
+        token_data.token_creator = sell_event.creator;
+        token_data
+            .pump_fun_swap_accounts
+            .update_creator_vault(&sell_event.creator);
+    }
 
     token_data.last_event = LastEvent {
         tx_hash: tx_id.clone(),

@@ -20,9 +20,9 @@ pub fn copy_sell_token(mint: Pubkey, reason: String) {
 
     let mut sell_data = token_data.clone();
     sell_data.token_sell_status = TokenSellStatus::SellTradeSubmitted;
-    sell_data
-        .pump_fun_swap_accounts
-        .update_creator_vault(&sell_data.token_creator);
+    // Do NOT call update_creator_vault here — the creator_vault stored in
+    // pump_fun_swap_accounts was copied directly from the target's buy IX
+    // (the ground truth) and must not be overwritten.
     let _ = TOKEN_DB.upsert(mint, sell_data.clone());
 
     info!(
