@@ -92,6 +92,8 @@ pub struct FilterSetting {
 #[derive(Debug, Deserialize)]
 pub struct TargetWallets {
     pub target_wallets: Vec<String>,
+    #[serde(default)]
+    pub mirror_wallets: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

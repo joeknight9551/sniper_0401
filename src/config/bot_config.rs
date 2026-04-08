@@ -26,6 +26,11 @@ pub static WALLET_KEYPAIR: Lazy<Keypair> = Lazy::new(|| {
 pub static TARGET_WALLETS: Lazy<Vec<String>> =
     Lazy::new(|| CONFIG.target_wallets.target_wallets.clone());
 
+/// Wallets in this list use pure mirror mode: buy when they buy, sell when they sell.
+/// No timeout, no TP. Wallets NOT in this list use the original logic (4.8s timeout + TP).
+pub static MIRROR_WALLETS: Lazy<Vec<String>> =
+    Lazy::new(|| CONFIG.target_wallets.mirror_wallets.clone());
+
 pub static CONFIRM_SERVICE: Lazy<String> =
     Lazy::new(|| CONFIG.relayer_config.confirm_service.clone());
 

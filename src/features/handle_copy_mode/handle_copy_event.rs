@@ -14,6 +14,7 @@ fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
         || token_data.token_buying_point_price == 0.0
         || token_data.token_sell_status != TokenSellStatus::None
         || !token_data.skip_tp_sl  // only copy-mode tokens have skip_tp_sl = true
+        || token_data.mirror_only  // mirror-only tokens sell only when target sells
     {
         return;
     }
@@ -164,6 +165,7 @@ pub async fn handle_copy_event(
                         PumpFunSwapAccounts::from_target_buy(buy_ix.clone());
                     queued.token_buy_now = true;
                     queued.skip_tp_sl = true;
+                    queued.mirror_only = MIRROR_WALLETS.iter().any(|w| *w == buy_event.user.to_string());
                     // Fill cashback from cache if still unknown
                     if !queued.cashback_known {
                         if let Some(val) = CASHBACK_CACHE.get(&buy_event.mint) {
@@ -187,6 +189,7 @@ pub async fn handle_copy_event(
                     queued.pump_fun_swap_accounts.update_creator_vault(&buy_event.creator);
                     queued.token_buy_now = true;
                     queued.skip_tp_sl = true;
+                    queued.mirror_only = MIRROR_WALLETS.iter().any(|w| *w == buy_event.user.to_string());
                     if *ONE_TIME_COPY {
                         COPIED_MINTS.insert(buy_event.mint);
                     }
@@ -243,6 +246,7 @@ pub async fn handle_copy_event(
                         token_take_profit_pct: 0.0,
                         token_holding_time_secs: 0,
                         skip_tp_sl: true,
+                        mirror_only: MIRROR_WALLETS.iter().any(|w| *w == buy_event.user.to_string()),
                     };
                     let _ = TOKEN_DB.upsert(buy_event.mint, new_token.clone());
                     if *ONE_TIME_COPY {

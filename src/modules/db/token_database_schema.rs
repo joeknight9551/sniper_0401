@@ -31,6 +31,9 @@ pub struct TokenDatabaseSchema {
     /// False when the token record was created from a buy IX without a mint event.
     /// In that case cashback_enabled is a best-guess and we must try both sell layouts.
     pub cashback_known: bool,
+    /// Pure mirror mode: only sell when the same target wallet sells.
+    /// No 4.8s timeout, no 180% TP.
+    pub mirror_only: bool,
 }
 
 impl TokenDatabaseSchema {
@@ -77,6 +80,7 @@ impl TokenDatabaseSchema {
             token_holding_time_secs: 0,
             skip_tp_sl: false,
             cashback_known: true,
+            mirror_only: false,
         };
         let _ = TOKEN_DB.upsert(mint_event.mint.clone(), token_data.clone());
 
