@@ -15,9 +15,26 @@ pub fn confirm(
     raw_instructions: Vec<Instruction>,
     tag: String,
 ) -> BoxFuture<'static, Option<Signature>> {
+    confirm_inner(raw_instructions, tag, false)
+}
+
+/// Like `confirm` but forces the TX to use a recent blockhash instead of a nonce.
+/// Used when sending a second concurrent TX that cannot share the same nonce.
+pub fn confirm_no_nonce(
+    raw_instructions: Vec<Instruction>,
+    tag: String,
+) -> BoxFuture<'static, Option<Signature>> {
+    confirm_inner(raw_instructions, tag, true)
+}
+
+fn confirm_inner(
+    raw_instructions: Vec<Instruction>,
+    tag: String,
+    skip_nonce: bool,
+) -> BoxFuture<'static, Option<Signature>> {
     async move {
         let results = match CONFIRM_SERVICE.as_str() {
-            "ASTRALANE" => send_astralane_transaction(raw_instructions, tag.clone()).await,
+            "ASTRALANE" => send_astralane_transaction(raw_instructions, tag.clone(), skip_nonce).await,
             _ => send_zero_slot_transaction(raw_instructions, tag.clone()).await,
         };
 

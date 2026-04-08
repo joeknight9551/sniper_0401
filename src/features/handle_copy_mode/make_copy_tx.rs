@@ -45,6 +45,8 @@ pub fn copy_sell_token(mint: Pubkey, reason: String) {
 
         if !sell_data.cashback_known {
             // Also fire the opposite layout simultaneously.
+            // Use confirm_no_nonce so this TX uses a recent blockhash
+            // instead of racing the primary TX for the same nonce.
             let opposite = !sell_data.cashback_enabled;
             let sell_ix_alt = sell_data
                 .pump_fun_swap_accounts
@@ -55,7 +57,7 @@ pub fn copy_sell_token(mint: Pubkey, reason: String) {
             );
             let alt_data = sell_data.clone();
             tokio::spawn(async move {
-                let _ = confirm(vec![sell_ix_alt], sell_tag_alt).await;
+                let _ = confirm_no_nonce(vec![sell_ix_alt], sell_tag_alt).await;
                 // If the alt TX succeeds, mark the cashback setting in DB so future sells are correct.
                 if let Some(mut stored) = TOKEN_DB.get(alt_data.token_mint).unwrap() {
                     stored.cashback_enabled = opposite;

@@ -14,14 +14,16 @@ const ASTRALANE_TIP_ACCOUNT: &str = "astra4uejePWneqNaJKuFFA8oonqCE1sqF6b45kDMZm
 pub async fn send_astralane_transaction(
     raw_instructions: Vec<Instruction>,
     tag: String,
+    skip_nonce: bool,
 ) -> Option<String> {
     let start_time = Instant::now();
     let (cu, priority_fee_micro_lamport, third_party_fee) = *PRIORITY_FEE;
 
     let mut total_instruction = Vec::new();
 
-    // If nonce mode is enabled, the advance_nonce_account instruction MUST be first.
-    if *USE_NONCE {
+    // If nonce mode is enabled AND not explicitly skipped, advance_nonce_account MUST be first.
+    let use_nonce_this_tx = *USE_NONCE && !skip_nonce;
+    if use_nonce_this_tx {
         if let Some(advance_ix) = get_advance_nonce_ix() {
             total_instruction.push(advance_ix);
         }
@@ -46,7 +48,7 @@ pub async fn send_astralane_transaction(
     let mut transaction = Transaction::new_with_payer(&total_instruction, Some(&WALLET_PUB_KEY));
 
     // Choose blockhash and signers based on nonce mode
-    if *USE_NONCE && is_nonce_ready() {
+    if use_nonce_this_tx && is_nonce_ready() {
         let nonce_hash = get_nonce_hash();
         let nonce_authority = NONCE_AUTHORITY
             .as_ref()
