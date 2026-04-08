@@ -6,7 +6,7 @@ use crate::{
 use dashmap::DashMap;
 use solana_sdk::pubkey::Pubkey;
 use std::sync::atomic::Ordering;
-/// Fire a 120% take-profit partial sell (80% of balance) for copy-mode positions.
+/// Fire a 120% take-profit partial sell (20% of balance) for copy-mode positions.
 /// Called after every price update (buy/sell events) for tokens we hold.
 fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
     if !token_data.token_is_purchased
@@ -20,14 +20,14 @@ fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
         return;
     }
 
-    // 120% TP means sell 80% when price reaches 1.2× the buy price (20% profit)
+    // 120% TP means sell 20% when price reaches 1.2× the buy price (20% profit)
     if token_data.token_price >= token_data.token_buying_point_price * 1.2 {
-        let sell_amount = token_data.token_balance * 4 / 5;
+        let sell_amount = token_data.token_balance / 5;
         if sell_amount == 0 {
             return;
         }
         info!(
-            "[CopyTP] 120% TP hit — selling 80% | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6} | Amount: {}",
+            "[CopyTP] 120% TP hit — selling 20% | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6} | Amount: {}",
             token_data.token_mint,
             token_data.token_buying_point_price,
             token_data.token_price,
@@ -38,7 +38,7 @@ fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
             stored.tp_partial_sold = true;
             let _ = TOKEN_DB.upsert(token_data.token_mint, stored);
         }
-        copy_sell_token(token_data.token_mint, "TP120%_80pct".to_string(), sell_amount);
+        copy_sell_token(token_data.token_mint, "TP120%_20pct".to_string(), sell_amount);
     }
 }
 

@@ -20,6 +20,8 @@ pub fn copy_sell_token(mint: Pubkey, reason: String, sell_amount: u64) {
 
     let amount = if sell_amount == 0 { token_data.token_balance } else { sell_amount.min(token_data.token_balance) };
 
+    let is_partial = sell_amount > 0 && sell_amount < token_data.token_balance;
+
     let mut sell_data = token_data.clone();
     sell_data.token_sell_status = TokenSellStatus::SellTradeSubmitted;
     // Always use the latest creator_vault from observed buy/sell IXs
@@ -65,6 +67,15 @@ pub fn copy_sell_token(mint: Pubkey, reason: String, sell_amount: u64) {
         }
 
         let _ = confirm(vec![sell_ix_primary], sell_tag_primary).await;
+
+        // After a partial sell, reset status to None so the remaining balance
+        // can be sold later when the target sells.
+        if is_partial {
+            if let Some(mut stored) = TOKEN_DB.get(sell_data.token_mint).unwrap() {
+                stored.token_sell_status = TokenSellStatus::None;
+                let _ = TOKEN_DB.upsert(sell_data.token_mint, stored);
+            }
+        }
     });
 }
 
