@@ -6,67 +6,6 @@ use crate::{
 use dashmap::DashMap;
 use solana_sdk::pubkey::Pubkey;
 use std::sync::atomic::Ordering;
-/// Fire tiered take-profit partial sells for copy-mode positions.
-///   Level 0 → 1: sell 20% at 1.2× buy price
-///   Level 1 → 2: sell 30% at 1.8× buy price
-/// Called after every price update (buy/sell events) for tokens we hold.
-fn check_copy_take_profit(token_data: &TokenDatabaseSchema) {
-    if !token_data.token_is_purchased
-        || token_data.token_balance == 0
-        || token_data.token_buying_point_price == 0.0
-        || token_data.token_sell_status != TokenSellStatus::None
-        || !token_data.skip_tp_sl  // only copy-mode tokens have skip_tp_sl = true
-        || token_data.mirror_only  // mirror-only tokens sell only when target sells
-        || token_data.tp_sell_level >= 2  // both TP tiers already fired
-    {
-        return;
-    }
-
-    // Tier 2: 1.8× buy price → sell 30%  (check higher tier first)
-    if token_data.tp_sell_level == 1
-        && token_data.token_price >= token_data.token_buying_point_price * 1.8
-    {
-        let sell_amount = token_data.token_balance * 3 / 10;
-        if sell_amount == 0 {
-            return;
-        }
-        info!(
-            "[CopyTP] 180% TP hit — selling 30% | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6} | Amount: {}",
-            token_data.token_mint,
-            token_data.token_buying_point_price,
-            token_data.token_price,
-            sell_amount,
-        );
-        if let Some(mut stored) = TOKEN_DB.get(token_data.token_mint).unwrap() {
-            stored.tp_sell_level = 2;
-            let _ = TOKEN_DB.upsert(token_data.token_mint, stored);
-        }
-        copy_sell_token(token_data.token_mint, "TP180%_30pct".to_string(), sell_amount);
-        return;
-    }
-
-    // Tier 1: 1.2× buy price → sell 20%
-    if token_data.tp_sell_level == 0
-        && token_data.token_price >= token_data.token_buying_point_price * 1.2
-    {
-        let sell_amount = token_data.token_balance / 5;
-        if sell_amount == 0 {
-            return;
-        }
-        info!(
-            "[CopyTP] 120% TP hit — selling 20% | Mint: {} | BuyPrice: {:.6} | CurrentPrice: {:.6} | Amount: {}",
-            token_data.token_mint,
-            token_data.token_buying_point_price,
-            token_data.token_price,
-            sell_amount,
-        );
-        if let Some(mut stored) = TOKEN_DB.get(token_data.token_mint).unwrap() {
-            stored.tp_sell_level = 1;
-            let _ = TOKEN_DB.upsert(token_data.token_mint, stored);
-        }
-        copy_sell_token(token_data.token_mint, "TP120%_20pct".to_string(), sell_amount);
-    }
-}
 
 pub async fn handle_copy_event(
     trade_data: (
@@ -142,7 +81,7 @@ pub async fn handle_copy_event(
                         "[CopyMode] Target {} sold {} — following sell (tp_sell_level={})",
                         sell_event.user, sell_event.mint, token_data.tp_sell_level
                     );
-                    copy_sell_token(sell_event.mint, "TargetSell".to_string(), 0);
+                    copy_sell_token(sell_event.mint, "TargetSell".to_string());
                     // Re-read from DB so update_status_from_sell_event doesn't
                     // overwrite the SellTradeSubmitted status with a stale clone.
                     if let Some(fresh) = TOKEN_DB.get(sell_event.mint).unwrap() {
@@ -157,10 +96,6 @@ pub async fn handle_copy_event(
                 tx_id.to_string(),
                 cu_dummy,
             ) {
-                // Only check TP if we didn't just fire a target-sell for this token.
-                if !is_target_sell {
-                    check_copy_take_profit(&updated);
-                }
                 return_data.insert(updated.token_mint, updated);
             }
         }
@@ -187,9 +122,6 @@ pub async fn handle_copy_event(
                     }
                 }
             }
-
-            // Check 180% TP on every price update for held tokens
-            check_copy_take_profit(&updated);
 
             if is_target
                 && !updated.token_is_purchased
