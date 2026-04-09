@@ -99,8 +99,15 @@ pub async fn make_copy_tx(trade_token_data_map: &DashMap<Pubkey, TokenDatabaseSc
             // Spawn confirm FIRST — before any logging — to minimise latency.
             let ix_clone = ix.clone();
             let tag_clone = tag.clone();
+            let mint = token_data.token_mint;
             tokio::spawn(async move {
                 let _ = confirm(ix_clone, tag_clone).await;
+            });
+
+            // Schedule a sell of the full balance 4.8 s after the buy.
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(4800)).await;
+                copy_sell_token(mint, "TimedSell_4.8s".to_string());
             });
 
             info!("{}", tag);
