@@ -11,23 +11,12 @@ pub async fn main() {
     // This must happen before any transactions are sent.
     init_nonce_cache().await;
 
-    tokio::spawn(async {
-        loop {
-            recent_block_handler().await;
-        }
-    });
-
     tokio::spawn({
         async {
             loop {
                 check_no_activity_tokens().await;
             }
         }
-    });
-
-    // Start wallet tracker (separate gRPC connection)
-    tokio::spawn(async {
-        start_wallet_tracker().await;
     });
 
     let mut grpc_client = setup_grpc_client(GRPC_ENDPOINT.to_string(), GRPC_TOKEN.to_string())

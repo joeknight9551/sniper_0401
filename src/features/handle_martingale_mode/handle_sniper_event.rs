@@ -30,13 +30,33 @@ pub async fn handle_sniper_event(
 
     for (i, mint_event) in mint_events.iter().enumerate() {
         if !mint_event.is_mayhem_mode {
-            if let Some(token_data) = TokenDatabaseSchema::new_from_mint(
+            if let Some(mut token_data) = TokenDatabaseSchema::new_from_mint(
                 mint_event.clone(),
                 mint_ixs_accounts[i].clone(),
                 tx_id.to_string(),
             )
             .await
             {
+                // Buy immediately if the creator is in our whitelist
+                if is_creator_whitelisted(&mint_event.creator)
+                    && !IS_HOLDING_POSITION.load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    if SKIP_NEXT_BUY.load(std::sync::atomic::Ordering::SeqCst) {
+                        SKIP_NEXT_BUY.store(false, std::sync::atomic::Ordering::SeqCst);
+                        info!(
+                            "[Skip] Skipping buy for {} due to 2 consecutive losses",
+                            mint_event.mint
+                        );
+                    } else {
+                        info!(
+                            "[Creator Match] Creator {} whitelisted — buying mint {}",
+                            mint_event.creator, mint_event.mint
+                        );
+                        token_data.token_buy_now = true;
+                        let _ = TOKEN_DB.upsert(token_data.token_mint, token_data.clone());
+                    }
+                }
+
                 return_data.insert(token_data.token_mint, token_data);
             }
         }
@@ -44,38 +64,12 @@ pub async fn handle_sniper_event(
 
     for (_i, buy_event) in buy_events.iter().enumerate() {
         if let Some(token_data) = TOKEN_DB.get(buy_event.mint).unwrap() {
-            let mut updated_token_data: TokenDatabaseSchema = update_status_from_buy_event(
+            let updated_token_data: TokenDatabaseSchema = update_status_from_buy_event(
                 token_data.clone(),
                 buy_event.clone(),
                 tx_id.to_string(),
                 cu_info,
             );
-
-            // Record CU pattern for this buy transaction on the token
-            if let Some(config) = record_and_match_cu_pattern(buy_event.mint, cu_info) {
-                if !updated_token_data.token_is_purchased
-                    && !IS_HOLDING_POSITION.load(std::sync::atomic::Ordering::SeqCst)
-                {
-                    // Skip this buy if 2 consecutive losses happened
-                    if SKIP_NEXT_BUY.load(std::sync::atomic::Ordering::SeqCst) {
-                        SKIP_NEXT_BUY.store(false, std::sync::atomic::Ordering::SeqCst);
-                        info!(
-                            "[Skip] Skipping buy for {} due to 2 consecutive losses",
-                            buy_event.mint
-                        );
-                    } else if !WALLET_TRACKING_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) {
-                        info!(
-                            "[Skip] CU matched for {} but wallet tracking not confirmed yet",
-                            buy_event.mint
-                        );
-                    } else {
-                        updated_token_data.token_take_profit_pct = config.take_profit_pct;
-                        updated_token_data.token_holding_time_secs = config.holding_time_secs;
-                        updated_token_data.token_buy_now = true;
-                        let _ = TOKEN_DB.upsert(updated_token_data.token_mint, updated_token_data.clone());
-                    }
-                }
-            }
 
             return_data.insert(updated_token_data.token_mint, updated_token_data);
         }
@@ -83,38 +77,12 @@ pub async fn handle_sniper_event(
 
     for (_i, sell_event) in sell_events.iter().enumerate() {
         if let Some(token_data) = TOKEN_DB.get(sell_event.mint).unwrap() {
-            if let Some(mut updated_token_data) = update_status_from_sell_event(
+            if let Some(updated_token_data) = update_status_from_sell_event(
                 token_data.clone(),
                 sell_event.clone(),
                 tx_id.to_string(),
                 cu_info,
             ) {
-                // Record CU pattern for this sell transaction on the token
-                if let Some(config) = record_and_match_cu_pattern(sell_event.mint, cu_info) {
-                    if !updated_token_data.token_is_purchased
-                        && !IS_HOLDING_POSITION.load(std::sync::atomic::Ordering::SeqCst)
-                    {
-                        // Skip this buy if 2 consecutive losses happened
-                        if SKIP_NEXT_BUY.load(std::sync::atomic::Ordering::SeqCst) {
-                            SKIP_NEXT_BUY.store(false, std::sync::atomic::Ordering::SeqCst);
-                            info!(
-                                "[Skip] Skipping buy for {} due to 2 consecutive losses",
-                                sell_event.mint
-                            );
-                        } else if !WALLET_TRACKING_CONFIRMED.load(std::sync::atomic::Ordering::SeqCst) {
-                            info!(
-                                "[Skip] CU matched for {} but wallet tracking not confirmed yet",
-                                sell_event.mint
-                            );
-                        } else {
-                            updated_token_data.token_take_profit_pct = config.take_profit_pct;
-                            updated_token_data.token_holding_time_secs = config.holding_time_secs;
-                            updated_token_data.token_buy_now = true;
-                            let _ = TOKEN_DB.upsert(updated_token_data.token_mint, updated_token_data.clone());
-                        }
-                    }
-                }
-
                 return_data.insert(updated_token_data.token_mint, updated_token_data);
             }
         }

@@ -7,8 +7,8 @@ pub async fn process_martingale_mode<S>(mut stream: S) -> Result<(), Box<dyn std
 where
     S: StreamExt<Item = Result<SubscribeUpdate, Status>> + Unpin,
 {
-    // Eagerly initialize patterns on startup
-    let _ = &*CU_PATTERNS;
+    // Eagerly initialize creator wallet whitelist on startup
+    let _ = &*CREATOR_WALLETS;
 
     while let Some(result) = stream.next().await {
         match result {

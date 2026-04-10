@@ -212,83 +212,108 @@ pub fn update_status_from_sell_event(
     }
 }
 
-/// Check if the current price has hit the per-pattern take-profit target.
-/// Called on every buy/sell event price update — no polling needed.
+/// Tiered take-profit check. Each tier sells a percentage of the *current* balance.
+/// tp_sell_level tracks which tiers have already fired (bitmask-style using level number).
+///
+/// Tier 1: price >= buy_price × 1.5  → sell 30%
+/// Tier 2: price >= buy_price × 3.0  → sell 20%
+/// Tier 3: price >= buy_price × 7.5  → sell 50%
 fn check_take_profit(token_data: &TokenDatabaseSchema) {
     if token_data.skip_tp_sl
         || !token_data.token_is_purchased
         || token_data.token_balance == 0
         || token_data.token_buying_point_price == 0.0
         || token_data.token_sell_status != TokenSellStatus::None
-        || token_data.token_take_profit_pct == 0.0
     {
         return;
     }
 
-    let take_profit_multiplier = token_data.token_take_profit_pct / 100.0;
-    let take_profit_price = token_data.token_buying_point_price * take_profit_multiplier;
+    let buy_price = token_data.token_buying_point_price;
+    let current_price = token_data.token_price;
+    let level = token_data.tp_sell_level;
 
-    if token_data.token_price >= take_profit_price {
-        info!(
-            "[TP HIT] {}% reached! BuyPrice: {:.6} → CurrentPrice: {:.6} (target: {:.6}) | Mint: {}",
-            token_data.token_take_profit_pct,
-            token_data.token_buying_point_price,
-            token_data.token_price,
-            take_profit_price,
-            token_data.token_mint,
+    // Determine which tier to trigger (only one per price update, lowest untriggered first)
+    let (tier_level, multiplier, sell_pct): (u8, f64, f64) =
+        if level < 1 && current_price >= buy_price * 1.5 {
+            (1, 1.5, 30.0)
+        } else if level < 2 && current_price >= buy_price * 3.0 {
+            (2, 3.0, 20.0)
+        } else if level < 3 && current_price >= buy_price * 7.5 {
+            (3, 7.5, 50.0)
+        } else {
+            return;
+        };
+
+    let sell_amount = (token_data.token_balance as f64 * sell_pct / 100.0) as u64;
+    if sell_amount == 0 {
+        return;
+    }
+
+    info!(
+        "[TP{} HIT] {:.0}× reached! BuyPrice: {:.6} → CurrentPrice: {:.6} | Selling {}% ({} tokens) | Mint: {}",
+        tier_level,
+        multiplier,
+        buy_price,
+        current_price,
+        sell_pct,
+        sell_amount,
+        token_data.token_mint,
+    );
+
+    // Mark as sell submitted to prevent duplicate sells
+    let mut updated = token_data.clone();
+    updated.token_sell_status = TokenSellStatus::SellTradeSubmitted;
+    updated.tp_sell_level = tier_level;
+    let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
+
+    // Build and send sell tx asynchronously
+    let sell_data = updated.clone();
+    tokio::spawn(async move {
+        let mut data = sell_data;
+        data.pump_fun_swap_accounts
+            .update_creator_vault(&data.token_creator);
+
+        let sell_ix = data
+            .pump_fun_swap_accounts
+            .get_sell_ix(sell_amount, data.cashback_enabled);
+
+        let sell_tag = format!(
+            "[SELL]\t*TP{} ({:.0}×)\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+            tier_level,
+            multiplier,
+            data.pump_fun_swap_accounts.mint,
+            data.token_marketcap,
+            sell_amount,
+            data.token_buying_point_price,
+            data.token_price,
         );
 
-        // Mark as sell submitted to prevent duplicate sells
-        let mut updated = token_data.clone();
-        updated.token_sell_status = TokenSellStatus::SellTradeSubmitted;
-        let _ = TOKEN_DB.upsert(updated.token_mint, updated.clone());
+        info!(
+            "[SELL]\t*TP{} ({:.0}×)\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
+            tier_level,
+            multiplier,
+            data.pump_fun_swap_accounts.mint,
+            data.token_marketcap,
+            sell_amount,
+            data.token_buying_point_price,
+            data.token_price,
+        );
 
-        // Build and send sell tx asynchronously
-        let sell_data = updated.clone();
-        tokio::spawn(async move {
-            let mut data = sell_data;
-            data.pump_fun_swap_accounts
-                .update_creator_vault(&data.token_creator);
+        let _ = confirm(vec![sell_ix], sell_tag).await;
 
-            let sell_ix = data
-                .pump_fun_swap_accounts
-                .get_sell_ix(data.token_balance, data.cashback_enabled);
+        // Reset sell status so next tier can fire; keep tp_sell_level updated
+        if let Ok(Some(mut current)) = TOKEN_DB.get(data.token_mint) {
+            current.token_sell_status = TokenSellStatus::None;
+            let _ = TOKEN_DB.upsert(data.token_mint, current);
+        }
 
-            let sell_tag = format!(
-                "[SELL]\t*{}% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
-                data.token_take_profit_pct,
-                data.pump_fun_swap_accounts.mint,
-                data.token_marketcap,
-                data.token_balance,
-                data.token_buying_point_price,
-                data.token_price,
-            );
-
-            info!(
-                "[SELL]\t*{}% TP\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
-                data.token_take_profit_pct,
-                data.pump_fun_swap_accounts.mint,
-                data.token_marketcap,
-                data.token_balance,
-                data.token_buying_point_price,
-                data.token_price,
-            );
-
-            let _ = confirm(vec![sell_ix], sell_tag).await;
-
-            // Take-profit hit = profit, reset consecutive loss counter
-            info!("[P&L] PROFIT (TP hit) | Mint: {}", data.pump_fun_swap_accounts.mint);
-            CONSECUTIVE_LOSSES.store(0, Ordering::SeqCst);
-
-            // Unlock position so bot can buy next token
-            IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
-        });
-    }
+        // TP hit = profit, reset consecutive loss counter
+        info!("[P&L] PROFIT (TP{} hit) | Mint: {}", tier_level, data.pump_fun_swap_accounts.mint);
+        CONSECUTIVE_LOSSES.store(0, Ordering::SeqCst);
+    });
 }
 
-/// Check if the current price has hit the stop-loss threshold.
-/// stop_loss config value is the percentage of buy price at which to sell.
-/// e.g. stop_loss = 70 means sell when price drops to 70% of buy price (30% loss).
+/// Stop loss: sell ALL tokens when price drops below 0.7 × buy price (30% loss).
 fn check_stop_loss(token_data: &TokenDatabaseSchema) {
     if token_data.skip_tp_sl
         || !token_data.token_is_purchased
@@ -299,17 +324,11 @@ fn check_stop_loss(token_data: &TokenDatabaseSchema) {
         return;
     }
 
-    let stop_loss_pct = CONFIG.sell_setting.stop_loss;
-    if stop_loss_pct == 0.0 {
-        return;
-    }
+    let stop_loss_price = token_data.token_buying_point_price * 0.7;
 
-    let stop_loss_price = token_data.token_buying_point_price * (stop_loss_pct / 100.0);
-
-    if token_data.token_price <= stop_loss_price {
+    if token_data.token_price < stop_loss_price {
         info!(
-            "[SL HIT] {}% stop loss! BuyPrice: {:.6} → CurrentPrice: {:.6} (threshold: {:.6}) | Mint: {}",
-            stop_loss_pct,
+            "[SL HIT] Price < 0.7× buy! BuyPrice: {:.6} → CurrentPrice: {:.6} (threshold: {:.6}) | Mint: {}",
             token_data.token_buying_point_price,
             token_data.token_price,
             stop_loss_price,
@@ -333,8 +352,7 @@ fn check_stop_loss(token_data: &TokenDatabaseSchema) {
                 .get_sell_ix(data.token_balance, data.cashback_enabled);
 
             let sell_tag = format!(
-                "[SELL]\t*{}% SL\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
-                stop_loss_pct,
+                "[SELL]\t*SL (< 0.7×)\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
                 data.pump_fun_swap_accounts.mint,
                 data.token_marketcap,
                 data.token_balance,
@@ -343,8 +361,7 @@ fn check_stop_loss(token_data: &TokenDatabaseSchema) {
             );
 
             info!(
-                "[SELL]\t*{}% SL\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
-                stop_loss_pct,
+                "[SELL]\t*SL (< 0.7×)\t*MINT: {}\t*MC: {}\t*AMOUNT: {}\t*BuyPrice: {:.6}\t*SellPrice: {:.6}",
                 data.pump_fun_swap_accounts.mint,
                 data.token_marketcap,
                 data.token_balance,
