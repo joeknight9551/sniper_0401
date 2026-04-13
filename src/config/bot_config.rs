@@ -1,5 +1,4 @@
 use crate::*;
-use dashmap::DashSet;
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use reqwest::Client;
@@ -11,7 +10,7 @@ use solana_sdk::{
     signer::{Signer, keypair::Keypair},
 };
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32};
 
 pub static WALLET_PUB_KEY: Lazy<Pubkey> = Lazy::new(|| {
     let wallet: Keypair = Keypair::from_base58_string(&CONFIG.wallet_config.private_key);
@@ -111,37 +110,14 @@ pub static DEV_MODE: Lazy<bool> = Lazy::new(|| CONFIG.mode.is_dev_mode);
 
 pub static BUY_AMOUNT_SOL: Lazy<f64> = Lazy::new(|| CONFIG.buy_setting.buy_amount_sol);
 
-pub static ONE_TIME_COPY: Lazy<bool> = Lazy::new(|| CONFIG.buy_setting.one_time_copy);
-
-lazy_static! {
-    /// Tracks mints that have already been copy-traded (used when one_time_copy = true).
-    pub static ref COPIED_MINTS: DashSet<Pubkey> = DashSet::new();
-}
-
-pub static BUY_TX_COUNTER: Lazy<AtomicI32> =
-    Lazy::new(|| AtomicI32::new(CONFIG.mode.buy_tx_counter));
-
-pub static BUY_COUNTER: Lazy<AtomicI32> = Lazy::new(|| AtomicI32::new(1));
-
-pub fn get_buy_tx_remain_counter() -> i32 {
-    BUY_TX_COUNTER.load(Ordering::SeqCst)
-}
-
-pub fn get_buy_counter() -> i32 {
-    BUY_COUNTER.load(Ordering::SeqCst)
-}
-
-pub fn decrease_buy_counter() {
-    BUY_COUNTER.fetch_sub(1, Ordering::SeqCst);
-}
-
-pub fn increase_buy_counter() {
-    BUY_COUNTER.fetch_add(1, Ordering::SeqCst);
-}
-
-pub fn decrease_buy_tx_remain_counter() {
-    BUY_TX_COUNTER.fetch_sub(1, Ordering::SeqCst);
-}
+pub static TP1_MULTIPLIER: Lazy<f64> = Lazy::new(|| CONFIG.sell_setting.tp1_multiplier);
+pub static TP1_SELL_PCT: Lazy<f64> = Lazy::new(|| CONFIG.sell_setting.tp1_sell_pct);
+pub static TP2_MULTIPLIER: Lazy<f64> = Lazy::new(|| CONFIG.sell_setting.tp2_multiplier);
+pub static TP2_SELL_PCT: Lazy<f64> = Lazy::new(|| CONFIG.sell_setting.tp2_sell_pct);
+pub static TP3_MULTIPLIER: Lazy<f64> = Lazy::new(|| CONFIG.sell_setting.tp3_multiplier);
+pub static TP3_SELL_PCT: Lazy<f64> = Lazy::new(|| CONFIG.sell_setting.tp3_sell_pct);
+pub static STOP_LOSS_MULTIPLIER: Lazy<f64> = Lazy::new(|| CONFIG.sell_setting.stop_loss_multiplier);
+pub static TRAILING_STOP_MULTIPLIER: Lazy<f64> = Lazy::new(|| CONFIG.sell_setting.trailing_stop_multiplier);
 
 pub static PRIORITY_FEE: Lazy<(u64, u64, f64)> = Lazy::new(|| {
     let cu: u64 = CONFIG.fee_config.cu;

@@ -14,13 +14,13 @@ pub struct Config {
     pub wallet_config: WalletCredentialConfig,
     pub relayer_config: RelayerConfig,
     pub connection_config: ConnectionConfig,
-    pub sell_setting: SellSetting,
     pub monitor_setting: MonitorConfig,
     pub buy_setting: BuySetting,
     pub slippage_config: SlippageConfig,
     pub fee_config: FeeConfig,
     pub filter_setting: FilterSetting,
     pub nonce_config: NonceConfig,
+    pub sell_setting: SellSetting,
 }
 
 

@@ -234,12 +234,12 @@ fn check_take_profit(token_data: &TokenDatabaseSchema) {
 
     // Determine which tier to trigger (only one per price update, lowest untriggered first)
     let (tier_level, multiplier, sell_pct): (u8, f64, f64) =
-        if level < 1 && current_price >= buy_price * 1.5 {
-            (1, 1.5, 30.0)
-        } else if level < 2 && current_price >= buy_price * 3.0 {
-            (2, 3.0, 20.0)
-        } else if level < 3 && current_price >= buy_price * 7.5 {
-            (3, 7.5, 50.0)
+        if level < 1 && current_price >= buy_price * *TP1_MULTIPLIER {
+            (1, *TP1_MULTIPLIER, *TP1_SELL_PCT)
+        } else if level < 2 && current_price >= buy_price * *TP2_MULTIPLIER {
+            (2, *TP2_MULTIPLIER, *TP2_SELL_PCT)
+        } else if level < 3 && current_price >= buy_price * *TP3_MULTIPLIER {
+            (3, *TP3_MULTIPLIER, *TP3_SELL_PCT)
         } else {
             return;
         };
@@ -329,13 +329,13 @@ fn check_stop_loss(token_data: &TokenDatabaseSchema) {
     let current_price = token_data.token_price;
     let level = token_data.tp_sell_level;
 
-    // Trailing stop after TP2: if hit 3× but not 7.5×, sell all at 1.2×
-    let (triggered, label) = if level >= 2 && level < 3 && current_price <= buy_price * 1.2 {
-        (true, "Trailing SL (hit 3× → dropped to 1.2×)")
-    } else if current_price < buy_price * 0.7 {
-        (true, "SL (< 0.7×)")
+    // Trailing stop after TP2: if hit 3× but not 7.5×, sell all at trailing_stop_multiplier
+    let (triggered, label) = if level >= 2 && level < 3 && current_price <= buy_price * *TRAILING_STOP_MULTIPLIER {
+        (true, format!("Trailing SL (hit {:.1}× → dropped to {:.1}×)", *TP2_MULTIPLIER, *TRAILING_STOP_MULTIPLIER))
+    } else if current_price < buy_price * *STOP_LOSS_MULTIPLIER {
+        (true, format!("SL (< {:.1}×)", *STOP_LOSS_MULTIPLIER))
     } else {
-        (false, "")
+        (false, String::new())
     };
 
     if !triggered {
@@ -357,7 +357,7 @@ fn check_stop_loss(token_data: &TokenDatabaseSchema) {
 
     // Build and send sell tx asynchronously
     let sell_data = updated.clone();
-    let sell_label = label.to_string();
+    let sell_label = label.clone();
     tokio::spawn(async move {
         let mut data = sell_data;
         data.pump_fun_swap_accounts
