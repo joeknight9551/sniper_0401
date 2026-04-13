@@ -20,9 +20,7 @@ pub struct Config {
     pub slippage_config: SlippageConfig,
     pub fee_config: FeeConfig,
     pub filter_setting: FilterSetting,
-    pub target_wallets: TargetWallets,
     pub nonce_config: NonceConfig,
-    pub wallet_tracking_config: WalletTrackingConfig,
 }
 
 

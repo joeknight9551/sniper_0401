@@ -23,14 +23,6 @@ pub static WALLET_KEYPAIR: Lazy<Keypair> = Lazy::new(|| {
     wallet
 });
 
-pub static TARGET_WALLETS: Lazy<Vec<String>> =
-    Lazy::new(|| CONFIG.target_wallets.target_wallets.clone());
-
-/// Wallets in this list use pure mirror mode: buy when they buy, sell when they sell.
-/// No timeout, no TP. Wallets NOT in this list use the original logic (4.8s timeout + TP).
-pub static MIRROR_WALLETS: Lazy<Vec<String>> =
-    Lazy::new(|| CONFIG.target_wallets.mirror_wallets.clone());
-
 pub static CONFIRM_SERVICE: Lazy<String> =
     Lazy::new(|| CONFIG.relayer_config.confirm_service.clone());
 
@@ -63,8 +55,6 @@ lazy_static! {
     pub static ref CONSECUTIVE_LOSSES: AtomicU32 = AtomicU32::new(0);
     /// When true, skip the next matching token, then reset.
     pub static ref SKIP_NEXT_BUY: AtomicBool = AtomicBool::new(false);
-    /// Set to true when wallet tracking confirms the distribution pattern.
-    pub static ref WALLET_TRACKING_CONFIRMED: AtomicBool = AtomicBool::new(false);
 }
 
 pub static RPC_ENDPOINTL: Lazy<String> =

@@ -90,22 +90,9 @@ pub struct FilterSetting {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TargetWallets {
-    pub target_wallets: Vec<String>,
-    #[serde(default)]
-    pub mirror_wallets: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct NonceConfig {
     pub use_nonce: bool,
     pub nonce_account: String,
     pub nonce_authority_key: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct WalletTrackingConfig {
-    pub enabled: bool,
-    pub tracking_wallet: String,
-    pub chain_transfer_min_balance_lamports: u64,
-}

@@ -39,7 +39,6 @@ pub async fn handle_sniper_event(
             {
                 // Buy immediately if the creator is in our whitelist
                 if is_creator_whitelisted(&mint_event.creator)
-                    && !IS_HOLDING_POSITION.load(std::sync::atomic::Ordering::SeqCst)
                 {
                     if SKIP_NEXT_BUY.load(std::sync::atomic::Ordering::SeqCst) {
                         SKIP_NEXT_BUY.store(false, std::sync::atomic::Ordering::SeqCst);

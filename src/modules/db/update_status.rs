@@ -398,8 +398,5 @@ fn check_stop_loss(token_data: &TokenDatabaseSchema) {
             CONSECUTIVE_LOSSES.store(0, Ordering::SeqCst);
             info!("[P&L] 2 consecutive losses — will skip next token");
         }
-
-        // Unlock position so bot can buy next token
-        IS_HOLDING_POSITION.store(false, Ordering::SeqCst);
     });
 }
